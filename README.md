@@ -71,6 +71,8 @@ ping-shield --setup-service       # scan every 15 minutes + start the interactiv
 ping-shield --add-source t.me/thehackernews   # optional: more sources (see below)
 ```
 
+`pshield` is a short alias that works everywhere `ping-shield` does, for example `pshield --status`.
+
 To create a Telegram bot, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the
 token. Then open a chat with your new bot and press **Start**. `--init` can find your chat id
 automatically if you leave that prompt blank.

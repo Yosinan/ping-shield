@@ -7,6 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- `pshield`, a short alias for the `ping-shield` command.
+
+### Changed
+
+- The package author contact email is now yoszed22@gmail.com.
+
 ## [1.1.0] - 2026-10-31
 
 First public release on PyPI.
