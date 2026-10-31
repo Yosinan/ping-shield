@@ -73,7 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("--remove-source", nargs="+", metavar="SOURCE",
                         help="unsubscribe by list number, catalog id, channel or URL")
     action.add_argument("--bot", action="store_true",
-                        help="run the Telegram bot that answers alert buttons and chat commands")
+                        help="run the Telegram bot that answers alert buttons and chat commands "
+                             "(also runs the real-time watcher)")
+    action.add_argument("--watch", action="store_true",
+                        help="run only the real-time file watcher in the foreground")
     parser.add_argument("--only", choices=("monitor", "intel"), help="with --run: run a single engine")
     parser.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation (for --test)")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="more logging (-vv for debug)")
@@ -194,13 +197,15 @@ def cmd_setup_service(args: argparse.Namespace) -> int:
     config = load_config()
     if not config.telegram_configured:
         print("⚠ Telegram is not configured yet; scheduled scans will fail until you run `ping-shield --init`.")
-    for step in install_service():
-        print(f"✓ {step}" if not step.startswith("note:") else f"\n{step}")
-    # The new unit files are ours: don't report them as a persistence change.
+    # Hold the run lock while writing our own unit files and re-trusting them, so
+    # neither a scheduled scan nor the real-time watcher reports them as a change.
     with run_lock(wait_seconds=60) as acquired:
+        steps = install_service()
         state = StateStore(state_path())
         if acquired and "systemd.user" in state.section("monitor"):
             Monitor(config, state, None).rebaseline(["systemd.user"])
+    for step in steps:
+        print(f"✓ {step}" if not step.startswith("note:") else f"\n{step}")
     print("\nFollow the logs with: journalctl --user -u ping-shield.service -f")
     return EXIT_OK
 
@@ -209,12 +214,13 @@ def cmd_remove_service(args: argparse.Namespace) -> int:
     from .monitor import Monitor
     from .service import remove_service
 
-    for step in remove_service():
-        print(f"✓ {step}")
     with run_lock(wait_seconds=60) as acquired:
+        steps = remove_service()
         state = StateStore(state_path())
         if acquired and "systemd.user" in state.section("monitor"):
             Monitor(load_config(), state, None).rebaseline(["systemd.user"])
+    for step in steps:
+        print(f"✓ {step}")
     return EXIT_OK
 
 
@@ -256,6 +262,13 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"  environment keywords ({source}): {', '.join(matcher.environment)}")
     for line in service_status():
         print(f"service: {line}")
+    from .service import bot_active
+
+    if not config.realtime:
+        realtime = "off (realtime: false in config)"
+    else:
+        realtime = "on (inside the bot service)" if bot_active() else "off (start the bot service)"
+    print(f"real-time watch: {realtime}")
     return EXIT_OK
 
 
@@ -314,9 +327,26 @@ def cmd_bot(args: argparse.Namespace) -> int:
         print(f"✗ Cannot reach Telegram: {exc}", file=sys.stderr)
         return EXIT_ALERT_FAILURE
     print(f"🤖 @{name} is listening. Send /help to it in Telegram. Press Ctrl+C to stop.", flush=True)
+    if load_config().realtime:
+        print("👁 Real-time file watching is on.", flush=True)
     if sys.stdout.isatty():
         print("   To keep it running in the background, use: ping-shield --setup-service", flush=True)
     Bot(notifier).run_forever()
+    return EXIT_OK
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    from .service import bot_active
+    from .watch import Watcher
+
+    if args.verbose == 0:
+        logging.getLogger().setLevel(logging.INFO)
+    config = load_config()
+    if bot_active() and config.realtime:
+        print("The bot service is already watching in real time; no need to run --watch as well.")
+        return EXIT_OK
+    print("👁 Watching monitored files. Changes are reported within seconds. Press Ctrl+C to stop.", flush=True)
+    Watcher(_notifier(config), interactive=bot_active()).run_forever()
     return EXIT_OK
 
 
@@ -340,6 +370,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         (args.add_source, cmd_add_source),
         (args.remove_source, cmd_remove_source),
         (args.bot, cmd_bot),
+        (args.watch, cmd_watch),
     ]
     if args.only and any(flag for flag, _ in handlers):
         print("error: --only can only be combined with --run", file=sys.stderr)

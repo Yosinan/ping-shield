@@ -422,7 +422,23 @@ class Bot:
             self._reply(f"“{esc(arg)}” wasn't muted. Muted: {esc(', '.join(fresh.muted_keywords) or 'nothing')}")
 
     # -- main loop ------------------------------------------------------------
+    def _start_watcher(self) -> None:
+        """Run the real-time file watcher in a background thread, restarting it if it crashes."""
+        from .watch import Watcher
+
+        def loop() -> None:
+            while True:
+                try:
+                    Watcher(self.notifier, self.config_loader).run_forever()
+                except Exception:  # noqa: BLE001 - log and retry; the timer still covers us
+                    log.exception("real-time watcher stopped; restarting in 30s")
+                    time.sleep(30)
+
+        threading.Thread(target=loop, name="ping-shield-watch", daemon=True).start()
+
     def run_forever(self) -> None:
+        if self.config_loader().realtime:
+            self._start_watcher()
         try:
             self.notifier.set_commands(COMMANDS)
         except NotifyError as exc:

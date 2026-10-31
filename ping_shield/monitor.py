@@ -365,6 +365,10 @@ class Target:
     label: str
     category: str
     collect: Callable[[], Optional[Snapshot]]
+    # What the real-time watcher observes: "file" (one file), "tree" (a directory
+    # and everything below it) or "dir" (direct children only). Empty: timer only.
+    path: Optional[Path] = None
+    watch: str = ""
 
 
 _IDE_NAMES = {
@@ -397,10 +401,11 @@ def default_targets(config: Config) -> List[Target]:
     targets: List[Target] = []
 
     def text(target_id: str, path: Path, category: str, perms: bool = False) -> None:
-        targets.append(Target(target_id, _display(path), category, lambda: collect_text_file(path, perms)))
+        targets.append(Target(target_id, _display(path), category, lambda: collect_text_file(path, perms),
+                              path, "file"))
 
     def tree(target_id: str, path: Path) -> None:
-        targets.append(Target(target_id, _display(path), "persistence", lambda: collect_tree(path)))
+        targets.append(Target(target_id, _display(path), "persistence", lambda: collect_tree(path), path, "tree"))
 
     text("ssh.authorized_keys", ssh / "authorized_keys", "ssh", perms=True)
     text("ssh.authorized_keys2", ssh / "authorized_keys2", "ssh", perms=True)
@@ -423,7 +428,7 @@ def default_targets(config: Config) -> List[Target]:
         slug = re.sub(r"[^a-z0-9]+", "-", parent.lower()).strip("-") or "custom"
         targets.append(
             Target(f"ext.{slug}", f"{name} extensions ({_display(path)})", "extensions",
-                   lambda p=path: collect_extensions(p))
+                   lambda p=path: collect_extensions(p), path, "dir")
         )
     return [t for t in targets if not disabled(t.id, config.disabled_checks)]
 
@@ -462,12 +467,14 @@ class Monitor:
         notifier: Optional[TelegramNotifier],
         banner: str = "",
         interactive: bool = False,
+        realtime: bool = False,
     ):
         self.config = config
         self.state = state
         self.notifier = notifier
         self.banner = banner
         self.interactive = interactive  # add callback buttons handled by `ping-shield --bot`
+        self.realtime = realtime  # scan was triggered by the file watcher, not the timer
         self.targets = default_targets(config)
         self.hostname = socket.gethostname()
 
@@ -501,6 +508,8 @@ class Monitor:
                 tags=[target.category, self.hostname],
             )
         fields.append(Field("📊", "Changes", diff_stats(diff)))
+        if self.realtime:
+            fields.append(Field("⚡", "Caught", "in real time, seconds after the change"))
         return Alert(
             icon=icon,
             title=title,

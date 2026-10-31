@@ -174,6 +174,8 @@ class Config:
     news_max_age_days: int = 3
     max_news_alerts_per_run: int = 8
     request_timeout: float = 20.0
+    # Watch monitored files with inotify (inside the bot service) for instant alerts.
+    realtime: bool = True
 
     @property
     def telegram_configured(self) -> bool:
@@ -214,6 +216,10 @@ class Config:
             )
         if "request_timeout" in data:
             cfg.request_timeout = _positive_number(data["request_timeout"], "request_timeout", float)
+        if "realtime" in data:
+            if not isinstance(data["realtime"], bool):
+                raise ConfigError("config field 'realtime' must be true or false")
+            cfg.realtime = data["realtime"]
         return cfg
 
 

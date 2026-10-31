@@ -8,6 +8,8 @@ software actually installed on your machine. Every finding is sent to your phone
 
 - **Zero runtime dependencies.** It uses only the Python standard library, so a supply-chain security
   tool doesn't widen its own supply chain.
+- **Real-time.** Changes to SSH keys, auto-start entries and extensions are reported about 2 seconds
+  after they happen, with a full scan every 15 minutes as a safety net.
 - **No root required.** Everything runs as your user, configured under `~/.config/ping-shield/`.
 - **Works on any systemd distribution:** Fedora, Ubuntu, Debian, Arch, openSUSE and others. Python 3.9+.
 
@@ -79,7 +81,8 @@ automatically if you leave that prompt blank.
 | `--sources` | Lists your subscribed sources and the catalog of official sources you can add. |
 | `--add-source SOURCE…` | Subscribes to an RSS/Atom URL, a public Telegram channel (`t.me/name` or `@name`) or a catalog id. |
 | `--remove-source SOURCE…` | Unsubscribes by list number, catalog id, channel or URL. |
-| `--bot` | Runs the interactive Telegram bot in the foreground. The systemd service normally does this for you. |
+| `--bot` | Runs the interactive Telegram bot and real-time watcher in the foreground. The systemd service normally does this for you. |
+| `--watch` | Runs only the real-time file watcher in the foreground (for systems without the bot service). |
 | `--status` | Shows the config, which targets have a baseline, the detected keywords and the timer state. |
 | `--rebaseline` | Accepts the current state of all monitored files as trusted, without sending alerts. |
 | `-v` / `-vv` | More detailed logging (written to stderr, which goes to the journal under systemd). |
@@ -143,6 +146,29 @@ ping-shield reads a public channel's web preview (`https://t.me/s/<channel>`). T
 key or extra dependency. **Private channels can't be read this way.** When a channel post links to an
 article that also arrives through RSS, both are recognised as the same story by the article link,
 title and CVE id, so you get one alert.
+
+## How detection works
+
+ping-shield detects changes in two ways. Both go through the same baseline and exactly-once alerting:
+
+| | Real-time watcher | Scheduled scan |
+|---|---|---|
+| **Runs** | Continuously, inside `ping-shield-bot.service` | Every 15 minutes (`ping-shield.timer`), and on `/scan` |
+| **Speed** | Alerts about 2 s after a change | Up to 15 min after a change |
+| **Covers** | SSH files, shell rc files, systemd user units, autostart, `environment.d`, extensions being installed or removed | Everything, including your crontab and code modified deep inside installed extensions |
+| **Cost** | No CPU while idle. Linux (inotify) wakes it only when a watched directory changes. | A few seconds of work per run |
+
+The watcher watches the *directories* that contain monitored files. That way it also catches
+editors and attackers that replace a file through a rename. It ignores unrelated files such as
+`.bash_history`, waits for a burst of writes to settle, and then scans only the affected targets.
+Real-time alerts carry a "⚡ Caught: in real time" line. Your crontab can't be watched in real time,
+because it lives in a spool directory only root can read, so the 15-minute scan covers it.
+
+ping-shield is a tripwire for the ways attackers keep access to a machine. It isn't an antivirus: it
+doesn't scan every file for malware, and it doesn't watch processes or network traffic.
+
+To turn real-time watching off, set `"realtime": false` in `config.json` and run
+`systemctl --user restart ping-shield-bot`.
 
 ## Interactive bot
 
@@ -224,7 +250,8 @@ the two Telegram fields:
   "muted_keywords": ["Linux"],
   "news_max_age_days": 3,
   "max_news_alerts_per_run": 8,
-  "request_timeout": 20
+  "request_timeout": 20,
+  "realtime": true
 }
 ```
 
