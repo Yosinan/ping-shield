@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ping-shield"
+dynamic = ["version"]
+description = "Linux workstation guard: detects SSH backdoors, persistence, malicious IDE extensions and relevant high-severity threat news, and alerts to Telegram exactly once."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Yoseph Zewdu", email = "ymymym4634@gmail.com" }]
+keywords = [
+    "security",
+    "monitoring",
+    "supply-chain",
+    "backdoor",
+    "ssh",
+    "persistence",
+    "threat-intelligence",
+    "telegram",
+    "systemd",
+    "vscode",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
+]
+# Intentionally empty: a security tool should not widen its own supply chain.
+dependencies = []
+
+[project.scripts]
+ping-shield = "ping_shield.main:run"
+
+[project.urls]
+Homepage = "https://github.com/Yosinan/ping-shield"
+Repository = "https://github.com/Yosinan/ping-shield.git"
+Issues = "https://github.com/Yosinan/ping-shield/issues"
+
+[tool.hatch.version]
+path = "src/ping_shield/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ping_shield"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/ping_shield", "README.md", "LICENSE", "pyproject.toml"]

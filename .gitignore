@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Never commit credentials
+.pypirc
+config.json
+state.json
+
+# Local assistant notes
+CLAUDE.md
