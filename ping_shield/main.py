@@ -307,7 +307,16 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
     if args.verbose == 0:
         logging.getLogger().setLevel(logging.INFO)
-    Bot(_notifier(load_config())).run_forever()
+    notifier = _notifier(load_config())
+    try:
+        name = notifier.get_me().get("username", "?")
+    except NotifyError as exc:
+        print(f"✗ Cannot reach Telegram: {exc}", file=sys.stderr)
+        return EXIT_ALERT_FAILURE
+    print(f"🤖 @{name} is listening. Send /help to it in Telegram. Press Ctrl+C to stop.", flush=True)
+    if sys.stdout.isatty():
+        print("   To keep it running in the background, use: ping-shield --setup-service", flush=True)
+    Bot(notifier).run_forever()
     return EXIT_OK
 
 
