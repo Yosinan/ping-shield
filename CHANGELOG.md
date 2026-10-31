@@ -7,20 +7,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-31
+
 ### Added
 
 - `CONTRIBUTING.md`, `SECURITY.md`, issue templates and a pull request template.
 - Install docs explain how to get `pipx` on Fedora, Ubuntu/Debian and Arch.
+
+### Changed
+
+- The package Homepage link now points to the project website, https://ping-shield.yos.et/.
 
 ### Fixed
 
 - The bot reconnects within about 30 seconds after the machine wakes from sleep or the network
   changes. Previously this could take several minutes. Outages and reconnects are now logged.
 - Tapping an alert button while the bot was offline no longer logs an error traceback.
-
-### Changed
-
-- The package Homepage link now points to the project website, https://ping-shield.yos.et/.
 
 ## [1.2.0] - 2026-10-31
 
@@ -82,7 +84,8 @@ Initial version (not published to PyPI).
 - `--init`, `--test`, `--setup-service`, `--remove-service`, `--status` and `--rebaseline`.
 - Secret redaction in diffs sent to Telegram.
 
-[Unreleased]: https://github.com/Yosinan/ping-shield/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Yosinan/ping-shield/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Yosinan/ping-shield/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Yosinan/ping-shield/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Yosinan/ping-shield/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Yosinan/ping-shield/commit/798093a
