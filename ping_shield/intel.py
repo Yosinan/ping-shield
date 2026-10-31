@@ -32,7 +32,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from . import __version__
-from .config import Config, StateStore
+from . import sources
+from .config import Config, StateStore, run_lock, save_config
 from .notify import Alert, Button, Field, NotifyError, TelegramNotifier, local_time
 
 log = logging.getLogger(__name__)
@@ -152,6 +153,7 @@ class NewsItem:
     summary: str = ""
     published: Optional[datetime] = None
     source: str = ""
+    alt_link: str = ""  # e.g. the Telegram post when `link` is the article
 
     @property
     def key(self) -> str:
@@ -161,6 +163,10 @@ class NewsItem:
     def title_key(self) -> str:
         normalised = re.sub(r"[^a-z0-9]+", " ", self.title.lower()).strip()
         return hashlib.sha256(normalised.encode("utf-8")).hexdigest()[:32]
+
+    @property
+    def link_key(self) -> str:
+        return sources.canonical_link(self.link) if self.link else ""
 
     @property
     def cves(self) -> Set[str]:
@@ -183,7 +189,9 @@ class KeywordMatcher:
     @classmethod
     def from_config(cls, config: Config) -> "KeywordMatcher":
         env = list(config.keywords) if config.keywords else environment_keywords()
-        return cls(config.severity_keywords, env + list(config.extra_keywords))
+        muted = {k.lower() for k in config.muted_keywords}
+        return cls(config.severity_keywords,
+                   [k for k in env + list(config.extra_keywords) if k.lower() not in muted])
 
     def match(self, item: NewsItem) -> Optional[Match]:
         text = f"{item.title}\n{item.summary}"
@@ -266,14 +274,11 @@ def parse_feed(data: bytes, source: str) -> List[NewsItem]:
     return items
 
 
-def fetch_feed(url: str, cache: Dict[str, Any], timeout: float) -> Optional[bytes]:
-    """Download *url*, using and updating the ETag/Last-Modified *cache*.
-
-    Returns None when the server answers 304 Not Modified.
-    """
+def _download(url: str, cache: Dict[str, Any], timeout: float, accept: str) -> Optional[bytes]:
+    """GET *url* with conditional headers from *cache*; None means 304 Not Modified."""
     if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-        raise ValueError(f"unsupported feed URL scheme: {url}")
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.5"}
+        raise ValueError(f"unsupported source URL scheme: {url}")
+    headers = {"User-Agent": USER_AGENT, "Accept": accept}
     if cache.get("etag"):
         headers["If-None-Match"] = cache["etag"]
     if cache.get("last_modified"):
@@ -283,7 +288,7 @@ def fetch_feed(url: str, cache: Dict[str, Any], timeout: float) -> Optional[byte
         with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310 - scheme checked
             data = resp.read(MAX_FEED_BYTES + 1)
             if len(data) > MAX_FEED_BYTES:
-                raise ValueError(f"feed larger than {MAX_FEED_BYTES // (1024 * 1024)} MiB")
+                raise ValueError(f"source larger than {MAX_FEED_BYTES // (1024 * 1024)} MiB")
             cache["etag"] = resp.headers.get("ETag", "")
             cache["last_modified"] = resp.headers.get("Last-Modified", "")
             return data
@@ -293,13 +298,43 @@ def fetch_feed(url: str, cache: Dict[str, Any], timeout: float) -> Optional[byte
         raise
 
 
-def feed_name(url: str) -> str:
-    host = urllib.parse.urlsplit(url).hostname or url
-    return {
-        "feeds.feedburner.com": "The Hacker News",
-        "www.bleepingcomputer.com": "BleepingComputer",
-        "www.cisa.gov": "CISA",
-    }.get(host, host)
+def parse_telegram(data: bytes, source: str) -> List[NewsItem]:
+    """Turn a public channel's web preview (t.me/s/<channel>) into news items."""
+    items = []
+    for post in sources.parse_channel(data.decode("utf-8", errors="replace")):
+        title, summary, article = sources.split_post(post)
+        if len(summary) > SUMMARY_CHARS:
+            summary = summary[:SUMMARY_CHARS].rsplit(" ", 1)[0] + "…"
+        items.append(NewsItem(
+            guid=post.post,
+            title=title[:300],
+            link=article or post.url,
+            alt_link=post.url if article else "",
+            summary=summary,
+            published=post.published,
+            source=source,
+        ))
+    return items
+
+
+def fetch_items(url: str, cache: Dict[str, Any], timeout: float) -> Optional[List[NewsItem]]:
+    """Fetch and parse one source (RSS/Atom feed or public Telegram channel).
+
+    Returns None when the source has not changed since the last fetch.
+    """
+    name = sources.display_name(url)
+    channel = sources.telegram_channel(url)
+    if channel:
+        data = _download(f"https://t.me/s/{channel}", cache, timeout, "text/html")
+        if data is None:
+            return None
+        items = parse_telegram(data, name)
+        if not items:
+            raise ValueError(f"no public posts found for @{channel} (is it a public channel?)")
+        return items
+    data = _download(url, cache, timeout,
+                     "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.5")
+    return None if data is None else parse_feed(data, name)
 
 
 # --------------------------------------------------------------------------- #
@@ -329,17 +364,20 @@ class IntelEngine:
         notifier: Optional[TelegramNotifier],
         banner: str = "",
         matcher: Optional[KeywordMatcher] = None,
+        interactive: bool = False,
     ):
         self.config = config
         self.state = state
         self.notifier = notifier
         self.banner = banner
+        self.interactive = interactive  # add callback buttons handled by `ping-shield --bot`
         self.matcher = matcher or KeywordMatcher.from_config(config)
         self.hostname = socket.gethostname()
         section = state.section("intel")
         self.seen: Dict[str, str] = section.setdefault("seen", {})
         self.titles: Dict[str, str] = section.setdefault("titles", {})
         self.cves: Dict[str, str] = section.setdefault("cves", {})
+        self.links: Dict[str, str] = section.setdefault("links", {})
         self.feed_cache: Dict[str, Dict[str, str]] = section.setdefault("feeds", {})
 
     def run(self) -> IntelReport:
@@ -348,17 +386,16 @@ class IntelEngine:
         for url in self.config.feeds:
             cache = self.feed_cache.setdefault(url, {})
             try:
-                data = fetch_feed(url, cache, self.config.request_timeout)
-                if data is None:
+                parsed = fetch_items(url, cache, self.config.request_timeout)
+                if parsed is None:
                     log.debug("%s not modified", url)
                     continue
-                parsed = parse_feed(data, feed_name(url))
                 log.debug("%s: %d items", url, len(parsed))
                 items += parsed
             except (urllib.error.URLError, OSError, ValueError, ET.ParseError) as exc:
                 reason = getattr(exc, "reason", exc)
                 report.errors.append(f"{url}: {reason}")
-                log.warning("feed %s failed: %s", url, reason)
+                log.warning("source %s failed: %s", url, reason)
                 cache.clear()  # force a full download next time
         return self.process_items(items, report)
 
@@ -377,9 +414,16 @@ class IntelEngine:
         buttons = []
         if item.link.startswith(("https://", "http://")):
             buttons.append([Button("📖 Read full article", item.link)])
+        if item.alt_link:
+            buttons.append([Button("💬 Open in Telegram", item.alt_link)])
         if cves:
             buttons.append([Button(f"🔎 {cve} on NVD", f"https://nvd.nist.gov/vuln/detail/{cve}")
                             for cve in cves[:2]])
+        if self.interactive:
+            mutes = [Button(f"🔕 Mute “{kw}”", callback=f"mute:{kw}") for kw in match.environment[:2]
+                     if len(f"mute:{kw}".encode()) <= 64]
+            if mutes:
+                buttons.append(mutes)
         return Alert(
             icon="🔴" if critical else "🟠",
             title="Critical Threat" if critical else "High-Severity Threat",
@@ -394,7 +438,7 @@ class IntelEngine:
     def _prune(self) -> None:
         retention = max(self.RETENTION_DAYS_MIN, self.config.news_max_age_days * 3)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention)).isoformat()
-        for store in (self.seen, self.titles, self.cves):
+        for store in (self.seen, self.titles, self.cves, self.links):
             for key in [k for k, ts in store.items() if ts < cutoff]:
                 del store[key]
             if len(store) > self.MAX_REMEMBERED:
@@ -423,7 +467,8 @@ class IntelEngine:
                 report.ignored += 1
                 continue
             cves = item.cves
-            if item.title_key in self.titles or (cves and cves.issubset(self.cves)):
+            if (item.title_key in self.titles or (cves and cves.issubset(self.cves))
+                    or (item.link_key and item.link_key in self.links)):
                 # Same threat already reported (possibly by another outlet).
                 self.seen[item.key] = stamp
                 report.duplicates += 1
@@ -445,9 +490,91 @@ class IntelEngine:
             self.titles[item.title_key] = stamp
             for cve in cves:
                 self.cves[cve] = stamp
+            if item.link_key:
+                self.links[item.link_key] = stamp
             report.sent.append(item)
             report.matched_keywords[item.key] = match
             self.state.save()
         self._prune()
         self.state.save()
         return report
+
+
+# --------------------------------------------------------------------------- #
+# Source management (used by the CLI and the bot)
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass
+class SourceChange:
+    value: str
+    url: str = ""
+    name: str = ""
+    ok: bool = False
+    message: str = ""
+
+
+def add_sources(config: Config, values: Sequence[str], state_file: Optional[Path]) -> List[SourceChange]:
+    """Validate and subscribe to sources.
+
+    Each source is fetched once to prove it works; its current items are
+    marked as seen so only posts published from now on can alert.
+    """
+    results = []
+    for value in values:
+        change = SourceChange(value)
+        results.append(change)
+        try:
+            change.url = sources.normalize(value)
+        except ValueError as exc:
+            change.message = str(exc)
+            continue
+        change.name = sources.display_name(change.url)
+        if change.url in config.feeds:
+            change.message = "already subscribed"
+            continue
+        cache: Dict[str, Any] = {}
+        try:
+            items = fetch_items(change.url, cache, config.request_timeout) or []
+        except (urllib.error.URLError, OSError, ValueError, ET.ParseError) as exc:
+            change.message = f"could not read it: {getattr(exc, 'reason', exc)}"
+            continue
+        with run_lock(wait_seconds=60):
+            state = StateStore(state_file)
+            intel = state.section("intel")
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            seen = intel.setdefault("seen", {})
+            for item in items:
+                seen.setdefault(item.key, stamp)
+            intel.setdefault("feeds", {})[change.url] = cache
+            state.save()
+        config.feeds.append(change.url)
+        change.ok = True
+        change.message = f"{len(items)} recent item(s) readable; you'll be alerted about new ones"
+    if any(r.ok for r in results):
+        save_config(config)
+    return results
+
+
+def remove_sources(config: Config, values: Sequence[str]) -> List[SourceChange]:
+    """Unsubscribe by list number (1-based), catalog id, channel or URL."""
+    results = []
+    targets = []
+    for value in values:
+        change = SourceChange(value)
+        results.append(change)
+        if value.isdigit() and 1 <= int(value) <= len(config.feeds):
+            url = config.feeds[int(value) - 1]
+        else:
+            try:
+                url = sources.normalize(value)
+            except ValueError as exc:
+                change.message = str(exc)
+                continue
+        if url not in config.feeds:
+            change.message = "not subscribed"
+            continue
+        change.url, change.name, change.ok, change.message = url, sources.display_name(url), True, "removed"
+        targets.append(url)
+    if targets:
+        config.feeds = [f for f in config.feeds if f not in targets]
+        save_config(config)
+    return results

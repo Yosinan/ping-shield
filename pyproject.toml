@@ -51,10 +51,10 @@ Repository = "https://github.com/Yosinan/ping-shield.git"
 Issues = "https://github.com/Yosinan/ping-shield/issues"
 
 [tool.hatch.version]
-path = "src/ping_shield/__init__.py"
+path = "ping_shield/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ping_shield"]
+packages = ["ping_shield"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/ping_shield", "README.md", "LICENSE", "pyproject.toml"]
+include = ["ping_shield", "README.md", "LICENSE", "pyproject.toml"]

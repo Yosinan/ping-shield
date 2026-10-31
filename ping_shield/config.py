@@ -169,6 +169,8 @@ class Config:
     )
     # Monitor target ids (or id prefixes such as "shell.") to skip.
     disabled_checks: List[str] = dataclasses.field(default_factory=list)
+    # Environment keywords silenced from Telegram ("🔕 Mute" button or /mute).
+    muted_keywords: List[str] = dataclasses.field(default_factory=list)
     news_max_age_days: int = 3
     max_news_alerts_per_run: int = 8
     request_timeout: float = 20.0
@@ -200,6 +202,7 @@ class Config:
             "severity_keywords",
             "extension_dirs",
             "disabled_checks",
+            "muted_keywords",
         ):
             if key in data:
                 setattr(cfg, key, _str_list(data[key], key))

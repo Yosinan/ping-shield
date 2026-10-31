@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .config import Config, StateStore, config_home, disabled
-from .notify import Alert, Field, NotifyError, TelegramNotifier, local_time
+from .notify import Alert, Button, Field, NotifyError, TelegramNotifier, local_time
 
 log = logging.getLogger(__name__)
 
@@ -461,11 +461,13 @@ class Monitor:
         state: StateStore,
         notifier: Optional[TelegramNotifier],
         banner: str = "",
+        interactive: bool = False,
     ):
         self.config = config
         self.state = state
         self.notifier = notifier
         self.banner = banner
+        self.interactive = interactive  # add callback buttons handled by `ping-shield --bot`
         self.targets = default_targets(config)
         self.hostname = socket.gethostname()
 
@@ -511,6 +513,8 @@ class Monitor:
             note_title="⚠️ Not you?",
             note=f"Investigate immediately: {why}" if why else "Investigate immediately.",
             tags=[target.category, self.hostname],
+            buttons=[[Button("✅ It was me", callback="ack"),
+                      Button("🚨 Not me", callback=f"sus:{target.category}")]] if self.interactive else [],
         )
 
     def _deliver(self, event: Event) -> None:

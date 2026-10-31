@@ -82,8 +82,18 @@ class Field:
 
 @dataclasses.dataclass
 class Button:
+    """An inline keyboard button: opens *url*, or sends *callback* to ``ping-shield --bot``."""
+
     text: str
-    url: str
+    url: str = ""
+    callback: str = ""
+
+    def to_api(self) -> Optional[Dict[str, str]]:
+        if self.url.startswith(("https://", "http://")):
+            return {"text": self.text, "url": self.url}
+        if self.callback and len(self.callback.encode()) <= 64:
+            return {"text": self.text, "callback_data": self.callback}
+        return None
 
 
 @dataclasses.dataclass
@@ -161,7 +171,7 @@ class Alert:
         if self.note or self.note_title:
             tail += ["", " ".join(p for p in (bold(self.note_title) if self.note_title else "", e(self.note)) if p)]
         if inline_links:
-            links = [b for row in self.buttons for b in row]
+            links = [b for row in self.buttons for b in row if b.url]
             if links:
                 tail.append("")
                 tail += [f'{e(b.text)}: <a href="{html.escape(b.url)}">{esc(b.url)}</a>' if rich
@@ -193,8 +203,7 @@ class Alert:
         return self._render(False, limit, inline_links=True)
 
     def reply_markup(self) -> Optional[Dict[str, Any]]:
-        rows = [[{"text": b.text, "url": b.url} for b in row if b.url.startswith(("https://", "http://"))]
-                for row in self.buttons]
+        rows = [[api for api in (b.to_api() for b in row) if api] for row in self.buttons]
         rows = [r for r in rows if r]
         return {"inline_keyboard": rows} if rows else None
 
@@ -234,7 +243,7 @@ class TelegramNotifier:
     def _scrub(self, text: str) -> str:
         return text.replace(self._token, "<redacted>") if self._token else text
 
-    def _call(self, method: str, payload: Dict[str, Any]) -> Any:
+    def _call(self, method: str, payload: Dict[str, Any], timeout: Optional[float] = None) -> Any:
         url = f"{self._base}/bot{self._token}/{method}"
         body = json.dumps(payload).encode("utf-8")
         last_error = "unknown error"
@@ -246,7 +255,7 @@ class TelegramNotifier:
                 headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
             )
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as resp:  # noqa: S310 - scheme validated
+                with urllib.request.urlopen(request, timeout=timeout or self.timeout) as resp:  # noqa: S310 - scheme validated
                     data = json.loads(resp.read(1_000_000).decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 try:
@@ -289,9 +298,11 @@ class TelegramNotifier:
         text: str,
         parse_mode: Optional[str] = "HTML",
         reply_markup: Optional[Dict[str, Any]] = None,
+        reply_to: Optional[int] = None,
+        chat_id: Optional[Any] = None,
     ) -> int:
         payload: Dict[str, Any] = {
-            "chat_id": self.chat_id,
+            "chat_id": chat_id if chat_id is not None else self.chat_id,
             "text": text,
             "link_preview_options": {"is_disabled": True},
         }
@@ -299,6 +310,8 @@ class TelegramNotifier:
             payload["parse_mode"] = parse_mode
         if reply_markup:
             payload["reply_markup"] = reply_markup
+        if reply_to:
+            payload["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
         result = self._call("sendMessage", payload)
         return int(result.get("message_id", 0)) if isinstance(result, dict) else 0
 
@@ -316,6 +329,23 @@ class TelegramNotifier:
                 log.warning("Telegram rejected the HTML (%s); resending as plain text", exc)
                 return self.send_message(alert.to_plain(), parse_mode=None)
             raise
+
+    def get_updates(self, offset: Optional[int], poll_seconds: int = 50) -> List[Dict[str, Any]]:
+        payload: Dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message", "callback_query"]}
+        if offset is not None:
+            payload["offset"] = offset
+        result = self._call("getUpdates", payload, timeout=poll_seconds + 15)
+        return result if isinstance(result, list) else []
+
+    def answer_callback(self, callback_id: str, text: str = "", alert: bool = False) -> None:
+        self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:200], "show_alert": alert})
+
+    def edit_reply_markup(self, chat_id: Any, message_id: int, markup: Optional[Dict[str, Any]]) -> None:
+        self._call("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id,
+                                              "reply_markup": markup or {"inline_keyboard": []}})
+
+    def set_commands(self, commands: List[Tuple[str, str]]) -> None:
+        self._call("setMyCommands", {"commands": [{"command": c, "description": d} for c, d in commands]})
 
     def discover_chats(self) -> List[Tuple[str, str]]:
         """Return ``(chat_id, description)`` for chats that recently messaged the bot."""

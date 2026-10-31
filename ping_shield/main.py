@@ -32,12 +32,20 @@ EPILOG = """\
 typical setup:
   ping-shield --init            store your Telegram bot token and chat id
   ping-shield --test            send two self-test alerts end to end
-  ping-shield --setup-service   scan automatically every 15 minutes
+  ping-shield --setup-service   scan every 15 minutes + start the interactive bot
+
+news sources:
+  ping-shield --sources                         list subscribed and catalog sources
+  ping-shield --add-source t.me/thehackernews   add a public Telegram channel
+  ping-shield --add-source ubuntu-usn           add a catalog source by id
+  ping-shield --add-source https://x.org/rss    add any RSS/Atom feed
+  ping-shield --remove-source 3                 remove by list number, id or URL
 
 other commands:
   ping-shield                   run one scan now (same as --run)
-  ping-shield --status          show configuration, baselines and timer state
+  ping-shield --status          show configuration, baselines and service state
   ping-shield --rebaseline      trust the current files without alerting
+  ping-shield --bot             run the interactive Telegram bot in the foreground
 """
 
 
@@ -59,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("--status", action="store_true", help="show configuration and service status")
     action.add_argument("--rebaseline", action="store_true",
                         help="accept the current state of all monitored files as trusted, without alerting")
+    action.add_argument("--sources", action="store_true", help="list subscribed news sources and the catalog")
+    action.add_argument("--add-source", nargs="+", metavar="SOURCE",
+                        help="subscribe to feed URLs, public Telegram channels (t.me/name) or catalog ids")
+    action.add_argument("--remove-source", nargs="+", metavar="SOURCE",
+                        help="unsubscribe by list number, catalog id, channel or URL")
+    action.add_argument("--bot", action="store_true",
+                        help="run the Telegram bot that answers alert buttons and chat commands")
     parser.add_argument("--only", choices=("monitor", "intel"), help="with --run: run a single engine")
     parser.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation (for --test)")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="more logging (-vv for debug)")
@@ -82,7 +97,13 @@ def _notifier(config) -> TelegramNotifier:
 # --------------------------------------------------------------------------- #
 def cmd_init(args: argparse.Namespace) -> int:
     def discover(token: str):
-        return TelegramNotifier(token, "").discover_chats()
+        try:
+            return TelegramNotifier(token, "").discover_chats()
+        except NotifyError as exc:
+            if "conflict" in str(exc).lower():
+                raise NotifyError("the ping-shield bot service is reading updates; type the chat id "
+                                  "instead (see it with: ping-shield --status)") from None
+            raise
 
     config = run_init(discover=discover)
     notifier = _notifier(config)
@@ -117,8 +138,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     from .intel import IntelEngine
     from .monitor import Monitor
 
+    from .service import bot_active
+
     config = load_config()
     notifier = _notifier(config)
+    interactive = bot_active()  # only offer callback buttons when something will answer them
     with run_lock() as acquired:
         if not acquired:
             log.warning("another ping-shield instance is running; skipping this run")
@@ -140,7 +164,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         failures = 0
         if args.only in (None, "monitor"):
-            report = Monitor(config, state, notifier).scan()
+            report = Monitor(config, state, notifier, interactive=interactive).scan()
             print(f"monitor: {len(report.baselined)} baselined, {report.unchanged} unchanged, "
                   f"{len(report.events)} change(s), {len(report.errors)} error(s)")
             for event in report.events:
@@ -151,7 +175,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             failures += len(report.undelivered)
 
         if args.only in (None, "intel"):
-            intel = IntelEngine(config, state, notifier).run()
+            intel = IntelEngine(config, state, notifier, interactive=interactive).run()
             print(f"intel: {intel.fetched} item(s), {len(intel.sent)} alerted, {intel.duplicates} duplicate, "
                   f"{intel.ignored} not relevant, {intel.stale} too old, {intel.deferred} deferred")
             for item in intel.sent:
@@ -235,6 +259,58 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_sources(args: argparse.Namespace) -> int:
+    from . import sources
+    from .intel import detect_distro_ids
+
+    config = load_config()
+    print("Subscribed sources:")
+    if not config.feeds:
+        print("  (none)")
+    for i, url in enumerate(config.feeds, 1):
+        print(f"  {i:>2}. {sources.display_name(url):<34} {url}")
+    recommended = {s.id for s in sources.recommended(detect_distro_ids())}
+    available = [s for s in sources.CATALOG if s.url not in config.feeds]
+    if available:
+        print("\nCatalog (add with: ping-shield --add-source <id>)   ★ = recommended for this machine")
+        for group, title in sources.GROUP_TITLES.items():
+            entries = [s for s in available if s.group == group]
+            if entries:
+                print(f"\n  {title}")
+                for s in entries:
+                    star = "★" if s.id in recommended else " "
+                    print(f"   {star} {s.id:<20} {s.description}")
+    print("\nAny public Telegram channel or RSS/Atom URL also works: ping-shield --add-source t.me/<channel>")
+    return EXIT_OK
+
+
+def cmd_add_source(args: argparse.Namespace) -> int:
+    from .intel import add_sources
+
+    results = add_sources(load_config(apply_env=False), args.add_source, state_path())
+    for r in results:
+        print(f"{'✓' if r.ok else '✗'} {r.name or r.value}: {r.message}")
+    return EXIT_OK if all(r.ok or r.message == "already subscribed" for r in results) else EXIT_ALERT_FAILURE
+
+
+def cmd_remove_source(args: argparse.Namespace) -> int:
+    from .intel import remove_sources
+
+    results = remove_sources(load_config(apply_env=False), args.remove_source)
+    for r in results:
+        print(f"{'✓' if r.ok else '✗'} {r.name or r.value}: {r.message}")
+    return EXIT_OK if all(r.ok for r in results) else EXIT_ALERT_FAILURE
+
+
+def cmd_bot(args: argparse.Namespace) -> int:
+    from .bot import Bot
+
+    if args.verbose == 0:
+        logging.getLogger().setLevel(logging.INFO)
+    Bot(_notifier(load_config())).run_forever()
+    return EXIT_OK
+
+
 def cmd_test(args: argparse.Namespace) -> int:
     from .tester import run_tests
 
@@ -244,10 +320,6 @@ def cmd_test(args: argparse.Namespace) -> int:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_logging(args.verbose)
-    if args.only and any(
-            (args.init, args.setup_service, args.remove_service, args.test, args.status, args.rebaseline)):
-        print("error: --only can only be combined with --run", file=sys.stderr)
-        return EXIT_USAGE
     handlers = [
         (args.init, cmd_init),
         (args.setup_service, cmd_setup_service),
@@ -255,7 +327,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         (args.test, cmd_test),
         (args.status, cmd_status),
         (args.rebaseline, cmd_rebaseline),
+        (args.sources, cmd_sources),
+        (args.add_source, cmd_add_source),
+        (args.remove_source, cmd_remove_source),
+        (args.bot, cmd_bot),
     ]
+    if args.only and any(flag for flag, _ in handlers):
+        print("error: --only can only be combined with --run", file=sys.stderr)
+        return EXIT_USAGE
     handler = next((fn for flag, fn in handlers if flag), cmd_run)
     try:
         return handler(args)

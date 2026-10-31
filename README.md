@@ -59,7 +59,8 @@ pipx install ping-shield          # or: python3 -m pip install --user ping-shiel
 
 ping-shield --init                # paste your Telegram bot token + chat id
 ping-shield --test                # end-to-end self-test: two alerts arrive on your phone
-ping-shield --setup-service       # scan automatically every 15 minutes
+ping-shield --setup-service       # scan every 15 minutes + start the interactive bot
+ping-shield --add-source t.me/thehackernews   # optional: more sources (see below)
 ```
 
 To create a Telegram bot, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the
@@ -73,13 +74,17 @@ automatically if you leave that prompt blank.
 | `ping-shield` / `--run` | Run one scan now (this is what the timer runs). `--only monitor` or `--only intel` limits the scan to one engine. |
 | `--init` | Interactive setup. The token is entered hidden, checked with Telegram, and saved with mode `0600`. |
 | `--test [-y]` | Automated simulation of the full alerting pipeline (see [Self-test](#self-test)). |
-| `--setup-service` | Generates `~/.config/systemd/user/ping-shield.{service,timer}`, then runs `daemon-reload` and `enable --now`. |
+| `--setup-service` | Generates `~/.config/systemd/user/ping-shield.{service,timer}` and `ping-shield-bot.service`, then enables and starts them. Re-run it after upgrading. |
 | `--remove-service` | Stops and deletes the units. |
+| `--sources` | Lists your subscribed sources and the catalog of official sources you can add. |
+| `--add-source SOURCE…` | Subscribes to an RSS/Atom URL, a public Telegram channel (`t.me/name` or `@name`) or a catalog id. |
+| `--remove-source SOURCE…` | Unsubscribes by list number, catalog id, channel or URL. |
+| `--bot` | Runs the interactive Telegram bot in the foreground. The systemd service normally does this for you. |
 | `--status` | Shows the config, which targets have a baseline, the detected keywords and the timer state. |
 | `--rebaseline` | Accepts the current state of all monitored files as trusted, without sending alerts. |
 | `-v` / `-vv` | More detailed logging (written to stderr, which goes to the journal under systemd). |
 
-Logs from scheduled runs: `journalctl --user -u ping-shield.service -f`
+Logs: `journalctl --user -u ping-shield.service -u ping-shield-bot.service -f`
 
 ## What is monitored
 
@@ -100,8 +105,8 @@ Logs from scheduled runs: `journalctl --user -u ping-shield.service -f`
 
 ## Threat intelligence
 
-The default feeds are The Hacker News, BleepingComputer and CISA advisories (any RSS 2.0, RSS 1.0 or
-Atom feed works). An item triggers an alert only if it matches **both**:
+The default sources are The Hacker News, BleepingComputer and CISA advisories. An item triggers an
+alert only if it matches **both**:
 
 1. a **severity** term, such as `actively exploited`, `zero-day`, `backdoor`, `supply chain`,
    `remote code execution`, `malicious package`, or a CVSS score of 9.0 or higher; **and**
@@ -109,6 +114,54 @@ Atom feed works). An item triggers an alert only if it matches **both**:
    `/etc/os-release` and from the tools on your `PATH`: your distro, OpenSSH, sudo, systemd, Python,
    PyPI, npm, Docker, Podman, VS Code, Cursor, xz/liblzma, and so on. Run `ping-shield --status` to
    see the detected list.
+
+### Adding sources: official feeds and Telegram channels
+
+```bash
+ping-shield --sources                              # what you have + the catalog (★ = recommended)
+ping-shield --add-source t.me/thehackernews        # any public Telegram channel
+ping-shield --add-source fedora-security oss-security   # catalog ids
+ping-shield --add-source https://example.org/feed.xml   # any RSS/Atom feed
+ping-shield --remove-source 4
+```
+
+You can do the same from Telegram with `/catalog` (tap ➕ to subscribe), `/addsource`, `/sources` and
+`/removesource`.
+
+| Group | Catalog ids |
+|---|---|
+| 📰 Security news | `thn`, `bleepingcomputer`, `krebs`, `darkreading` |
+| 🏛 Official advisories | `cisa`, `cisa-news`, `oss-security`, `github-security`, `pypi`, `socket` |
+| 🐧 Distribution advisories | `ubuntu-usn`, `debian-dsa`, `fedora-security`, `arch-asa` (the one for your distro is ★ recommended) |
+| ✈️ Telegram channels | `tg-thehackernews`, `tg-bleepingcomputer`, `tg-cvenotify` |
+
+Every new source is fetched once before it's added, to prove it works. Its existing posts are marked
+as already seen, so you are alerted only about posts published after you subscribed.
+
+**How Telegram channels work:** Telegram bots can't read channels they don't administer, so
+ping-shield reads a public channel's web preview (`https://t.me/s/<channel>`). This needs no login, API
+key or extra dependency. **Private channels can't be read this way.** When a channel post links to an
+article that also arrives through RSS, both are recognised as the same story by the article link,
+title and CVE id, so you get one alert.
+
+## Interactive bot
+
+`--setup-service` also starts `ping-shield-bot.service`, which listens to your bot. When it's
+running, alerts get action buttons:
+
+| Button | What it does |
+|---|---|
+| ✅ **It was me** | Marks the change as expected. The button turns into "Confirmed by &lt;name&gt; · 14:20". |
+| 🚨 **Not me** | Flags the alert and replies with a step-by-step response checklist for SSH, persistence or extension incidents. |
+| 🔕 **Mute "&lt;keyword&gt;"** | Stops news that only matches that keyword (for example, an over-broad `Linux`). Undo with `/unmute`. |
+| 📖 / 💬 / 🔎 | Opens the article, the original Telegram post, or the CVE on NVD. |
+
+Chat commands (shown in Telegram's menu): `/status`, `/scan`, `/sources`, `/catalog`, `/addsource`,
+`/removesource`, `/mute`, `/unmute`, `/help`.
+
+The bot serves **only the chat id in your config**. Anyone else who finds it is refused, so nobody else
+can run scans, change your sources or press your buttons. If the bot service isn't running, alerts are
+sent without the action buttons, so you never see buttons that do nothing.
 
 ## Anti-spam guarantees
 
@@ -118,8 +171,9 @@ Everything that has already been seen is cached in `~/.config/ping-shield/state.
   alerts only when its fingerprint changes. The baseline moves forward **only after Telegram confirms
   delivery**, so if the network is down the alert is retried on the next run. Once an alert is
   delivered, it is never sent again.
-- **Intel:** news items are remembered by GUID. When several outlets syndicate the same story, the
-  copies are matched by normalised title **and by CVE id**, so one threat produces one alert.
+- **Intel:** news items are remembered by GUID. When several outlets or channels carry the same
+  story, the copies are matched by normalised title, **article link and CVE id**, so one threat
+  produces one alert.
   Conditional GETs (ETag and `Last-Modified`) avoid downloading feeds that haven't changed. At most
   8 news alerts are sent per run; any extra alerts are deferred to the next run, not dropped.
 - An exclusive lock (`run.lock`) prevents overlapping runs.
@@ -167,6 +221,7 @@ the two Telegram fields:
   "severity_keywords": ["critical", "zero-day", "actively exploited", "backdoor", "…"],
   "extension_dirs": ["~/.vscode/extensions", "~/.cursor/extensions"],
   "disabled_checks": ["shell.zshrc", "ext."],
+  "muted_keywords": ["Linux"],
   "news_max_age_days": 3,
   "max_news_alerts_per_run": 8,
   "request_timeout": 20
@@ -247,10 +302,10 @@ git push -u origin main
 
 ### 3. Cut a release
 
-The version has a single source: `__version__` in `src/ping_shield/__init__.py`.
+The version has a single source: `__version__` in `ping_shield/__init__.py`.
 
 ```bash
-# bump the version in src/ping_shield/__init__.py, e.g. 1.0.0 -> 1.0.1
+# bump the version in ping_shield/__init__.py, e.g. 1.0.0 -> 1.0.1
 git commit -am "Release 1.0.1"
 git tag -a v1.0.1 -m "ping-shield 1.0.1"
 git push origin main --tags
