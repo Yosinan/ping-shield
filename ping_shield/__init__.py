@@ -7,6 +7,6 @@ threats relevant to the local machine, and reports changes to Telegram exactly
 once.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = ["__version__"]

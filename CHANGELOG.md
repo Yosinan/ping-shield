@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-31
+
 ### Added
 
 - `pshield`, a short alias for the `ping-shield` command.
@@ -14,6 +16,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - The package author contact email is now yoszed22@gmail.com.
+- The README now covers only user-facing documentation. Maintainer release steps moved to
+  `RELEASING.md`.
 
 ## [1.1.0] - 2026-10-31
 
@@ -63,6 +67,7 @@ Initial version (not published to PyPI).
 - `--init`, `--test`, `--setup-service`, `--remove-service`, `--status` and `--rebaseline`.
 - Secret redaction in diffs sent to Telegram.
 
-[Unreleased]: https://github.com/Yosinan/ping-shield/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Yosinan/ping-shield/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Yosinan/ping-shield/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Yosinan/ping-shield/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Yosinan/ping-shield/commit/798093a

@@ -307,114 +307,21 @@ rm -rf ~/.config/ping-shield
 
 ---
 
-## Development, build and publishing
-
-### 1. Clone and set up a development environment
+## Development
 
 ```bash
 git clone https://github.com/Yosinan/ping-shield.git
 cd ping-shield
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip build twine
-python -m pip install -e .          # editable install; the `ping-shield` command is now on PATH
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .                 # editable install: `ping-shield` and `pshield` run your working copy
 ping-shield --version
 ```
 
-### 2. Versioning
-
-ping-shield follows [Semantic Versioning](https://semver.org/). The version has a single source:
-`__version__` in `ping_shield/__init__.py`.
-
-| Bump | When | Example |
-|---|---|---|
-| **MAJOR** `2.0.0` | Something existing users rely on breaks: a CLI flag is removed or renamed, a config field changes meaning, or the state file needs a migration | dropping `--rebaseline` |
-| **MINOR** `1.2.0` | New backwards-compatible features | a new command, check, source type or bot button |
-| **PATCH** `1.1.1` | Backwards-compatible bug fixes only | a parser fix, a wrong exit code |
-
-Every change goes under `## [Unreleased]` in [CHANGELOG.md](https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md) when it's made. Each release
-gets a git tag `vX.Y.Z` on the commit that sets the version. Never reuse or move a published tag or
-version: PyPI rejects re-uploads, and users may already have pinned it.
-
-### 3. Cut a release
-
-```bash
-# 1. In CHANGELOG.md, rename [Unreleased] to [1.2.0] - YYYY-MM-DD, add a fresh empty
-#    [Unreleased] section, and update the compare links at the bottom.
-# 2. Set __version__ = "1.2.0" in ping_shield/__init__.py
-git commit -am "Release 1.2.0"
-git tag -a v1.2.0 -m "ping-shield 1.2.0"
-git push origin main v1.2.0
-```
-
-### 4. Build the source distribution and wheel
-
-```bash
-rm -rf dist/
-python3 -m build
-```
-
-This creates:
-
-```text
-dist/ping_shield-1.2.0.tar.gz             # source distribution (sdist)
-dist/ping_shield-1.2.0-py3-none-any.whl   # universal pure-Python wheel
-```
-
-The wheel is tagged `py3-none-any`: it has no compiled code, so the same file installs on every
-Linux distribution and CPU architecture. This is the modern equivalent of a "universal" wheel.
-
-Check the artifacts before uploading:
-
-```bash
-python3 -m twine check dist/*
-python3 -m venv /tmp/ps-smoke && /tmp/ps-smoke/bin/pip install dist/*.whl && /tmp/ps-smoke/bin/ping-shield --help
-```
-
-### 5. Publish to PyPI with twine
-
-1. Create an account on [pypi.org](https://pypi.org) and on [test.pypi.org](https://test.pypi.org),
-   and enable 2FA on both.
-2. Create an **API token** under *Account settings → API tokens*. The first upload needs an
-   account-wide token. After that, replace it with a token scoped to the `ping-shield` project.
-3. Provide the token to twine. The username is always the literal string `__token__`. Choose one
-   of these methods:
-
-   ```bash
-   # a) environment variables (good for CI; nothing is written to disk)
-   export TWINE_USERNAME=__token__
-   export TWINE_PASSWORD=pypi-AgEIcHlwaS5vcmc...   # read it from your password manager
-
-   # b) ~/.pypirc, readable only by you
-   cat > ~/.pypirc <<'EOF'
-   [pypi]
-   username = __token__
-   password = pypi-AgEIcHlwaS5vcmc...
-   [testpypi]
-   repository = https://test.pypi.org/legacy/
-   username = __token__
-   password = pypi-AgENdGVzdC5weXBp...
-   EOF
-   chmod 600 ~/.pypirc
-   ```
-
-4. Do a dry run on TestPyPI first:
-
-   ```bash
-   python3 -m twine upload --repository testpypi dist/*
-   pipx install --index-url https://test.pypi.org/simple/ ping-shield
-   ```
-
-5. Publish for real:
-
-   ```bash
-   python3 -m twine upload dist/*
-   ```
-
-PyPI never lets you re-upload a file with the same version number. If something is wrong, bump the
-version and build again. Once releases are routine, consider switching to
-[Trusted Publishing](https://docs.pypi.org/trusted-publishers/) from GitHub Actions. It removes
-long-lived API tokens completely.
+ping-shield follows [Semantic Versioning](https://semver.org/): **MAJOR** for breaking CLI, config or
+state changes, **MINOR** for new backwards-compatible features, **PATCH** for fixes. Add your change
+under `[Unreleased]` in [CHANGELOG.md](https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md).
+Issues and pull requests are welcome at
+[github.com/Yosinan/ping-shield](https://github.com/Yosinan/ping-shield/issues).
 
 ## Security notes
 
