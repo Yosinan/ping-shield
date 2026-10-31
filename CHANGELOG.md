@@ -7,6 +7,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- The bot reconnects within about 30 seconds after the machine wakes from sleep or the network
+  changes. Previously this could take several minutes. Outages and reconnects are now logged.
+- Tapping an alert button while the bot was offline no longer logs an error traceback.
+
 ### Changed
 
 - The package Homepage link now points to the project website, https://ping-shield.yos.et/.

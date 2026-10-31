@@ -243,11 +243,12 @@ class TelegramNotifier:
     def _scrub(self, text: str) -> str:
         return text.replace(self._token, "<redacted>") if self._token else text
 
-    def _call(self, method: str, payload: Dict[str, Any], timeout: Optional[float] = None) -> Any:
+    def _call(self, method: str, payload: Dict[str, Any], timeout: Optional[float] = None,
+              attempts: int = _MAX_ATTEMPTS) -> Any:
         url = f"{self._base}/bot{self._token}/{method}"
         body = json.dumps(payload).encode("utf-8")
         last_error = "unknown error"
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
+        for attempt in range(1, attempts + 1):
             request = urllib.request.Request(
                 url,
                 data=body,
@@ -286,7 +287,7 @@ class TelegramNotifier:
                 description = self._scrub(str(data.get("description", "unknown error")))
                 raise NotifyError(f"Telegram {method} failed: {description}")
             return data.get("result")
-        raise NotifyError(f"Telegram {method} failed after {_MAX_ATTEMPTS} attempts: {last_error}")
+        raise NotifyError(f"Telegram {method} failed after {attempts} attempt(s): {last_error}")
 
     # -- Bot API methods ----------------------------------------------------
     def get_me(self) -> Dict[str, Any]:
@@ -330,11 +331,13 @@ class TelegramNotifier:
                 return self.send_message(alert.to_plain(), parse_mode=None)
             raise
 
-    def get_updates(self, offset: Optional[int], poll_seconds: int = 50) -> List[Dict[str, Any]]:
+    def get_updates(self, offset: Optional[int], poll_seconds: int = 25) -> List[Dict[str, Any]]:
+        """Long-poll for updates. One attempt only: the caller's loop retries, which keeps
+        recovery fast after the laptop wakes from sleep or the network changes."""
         payload: Dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message", "callback_query"]}
         if offset is not None:
             payload["offset"] = offset
-        result = self._call("getUpdates", payload, timeout=poll_seconds + 15)
+        result = self._call("getUpdates", payload, timeout=poll_seconds + 10, attempts=1)
         return result if isinstance(result, list) else []
 
     def edit_message_text(self, message_id: int, text: str, reply_markup: Optional[Dict[str, Any]] = None,
@@ -352,7 +355,15 @@ class TelegramNotifier:
         self._call("sendChatAction", {"chat_id": self.chat_id, "action": action})
 
     def answer_callback(self, callback_id: str, text: str = "", alert: bool = False) -> None:
-        self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:200], "show_alert": alert})
+        try:
+            self._call("answerCallbackQuery",
+                       {"callback_query_id": callback_id, "text": text[:200], "show_alert": alert})
+        except NotifyError as exc:
+            # A button tapped while the bot was offline can't be answered any more; the
+            # action itself still runs, so this is not worth failing the update over.
+            if "query is too old" not in str(exc):
+                raise
+            log.debug("skipped answering an expired button press")
 
     def edit_reply_markup(self, chat_id: Any, message_id: int, markup: Optional[Dict[str, Any]]) -> None:
         self._call("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id,

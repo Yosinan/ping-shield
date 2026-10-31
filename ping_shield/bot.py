@@ -444,15 +444,24 @@ class Bot:
         except NotifyError as exc:
             log.warning("could not register bot commands: %s", exc)
         offset: Optional[int] = None
+        offline_since: Optional[float] = None
         log.info("bot listening for commands and button presses")
         while True:
             try:
                 updates = self.notifier.get_updates(offset)
             except NotifyError as exc:
-                delay = 30 if "conflict" in str(exc).lower() else 10
-                log.warning("getUpdates failed (%s); retrying in %ss", exc, delay)
-                time.sleep(delay)
+                if "conflict" in str(exc).lower():
+                    log.warning("another program is reading this bot's updates (%s); retrying in 30s", exc)
+                    time.sleep(30)
+                    continue
+                if offline_since is None:
+                    offline_since = time.monotonic()
+                    log.warning("Telegram unreachable (%s); retrying every 5s", exc)
+                time.sleep(5)
                 continue
+            if offline_since is not None:
+                log.info("reconnected to Telegram after %ds offline", time.monotonic() - offline_since)
+                offline_since = None
             for update in updates:
                 offset = update["update_id"] + 1
                 try:
