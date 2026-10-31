@@ -1,7 +1,7 @@
 # ping-shield
 
-[![PyPI](https://img.shields.io/pypi/v/ping-shield)](https://pypi.org/project/ping-shield/)
-[![Python](https://img.shields.io/pypi/pyversions/ping-shield)](https://pypi.org/project/ping-shield/)
+[![PyPI](https://img.shields.io/pypi/v/ping-shield?cacheSeconds=3600)](https://pypi.org/project/ping-shield/)
+[![Python](https://img.shields.io/pypi/pyversions/ping-shield?cacheSeconds=3600)](https://pypi.org/project/ping-shield/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Yosinan/ping-shield/blob/main/LICENSE)
 
 **A real-time tripwire for Linux workstations.** ping-shield watches the places attackers use to keep
