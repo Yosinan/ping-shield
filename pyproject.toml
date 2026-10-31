@@ -51,7 +51,7 @@ ping-shield = "ping_shield.main:run"
 pshield = "ping_shield.main:run"
 
 [project.urls]
-Homepage = "https://yosinan.github.io/ping-shield/"
+Homepage = "https://ping-shield.yos.et/"
 Repository = "https://github.com/Yosinan/ping-shield.git"
 Issues = "https://github.com/Yosinan/ping-shield/issues"
 Changelog = "https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md"

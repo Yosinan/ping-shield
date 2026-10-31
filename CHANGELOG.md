@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
-- The package Homepage link now points to the project website, https://yosinan.github.io/ping-shield/.
+- The package Homepage link now points to the project website, https://ping-shield.yos.et/.
 
 ## [1.2.0] - 2026-10-31
 
