@@ -7,6 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- `CONTRIBUTING.md`, `SECURITY.md`, issue templates and a pull request template.
+- Install docs explain how to get `pipx` on Fedora, Ubuntu/Debian and Arch.
+
 ### Fixed
 
 - The bot reconnects within about 30 seconds after the machine wakes from sleep or the network

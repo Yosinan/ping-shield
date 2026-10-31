@@ -64,13 +64,19 @@ in collapsible quotes, and links are inline buttons. Hashtags let you filter ale
 ## Quick start
 
 ```bash
-pipx install ping-shield          # or: python3 -m pip install --user ping-shield
+pipx install ping-shield
 
 ping-shield --init                # paste your Telegram bot token + chat id
 ping-shield --test                # end-to-end self-test: two alerts arrive on your phone
 ping-shield --setup-service       # scan every 15 minutes + start the interactive bot
 ping-shield --add-source t.me/thehackernews   # optional: more sources (see below)
 ```
+
+**No `pipx`?** Install it first: `sudo dnf install pipx` (Fedora), `sudo apt install pipx`
+(Ubuntu/Debian) or `sudo pacman -S python-pipx` (Arch), then run `pipx ensurepath` and open a new
+terminal. pipx gives ping-shield its own isolated environment, so it never conflicts with your system
+Python. You can also run `python3 -m pip install --user ping-shield`, but recent Ubuntu and Debian
+releases block that by design.
 
 `pshield` is a short alias that works everywhere `ping-shield` does, for example `pshield --status`.
 
@@ -321,8 +327,10 @@ ping-shield --version
 ping-shield follows [Semantic Versioning](https://semver.org/): **MAJOR** for breaking CLI, config or
 state changes, **MINOR** for new backwards-compatible features, **PATCH** for fixes. Add your change
 under `[Unreleased]` in [CHANGELOG.md](https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md).
-Issues and pull requests are welcome at
-[github.com/Yosinan/ping-shield](https://github.com/Yosinan/ping-shield/issues).
+
+**Want to contribute?** Read [CONTRIBUTING.md](https://github.com/Yosinan/ping-shield/blob/main/CONTRIBUTING.md)
+for the ground rules, project layout and review process. To report a vulnerability, follow
+[SECURITY.md](https://github.com/Yosinan/ping-shield/blob/main/SECURITY.md) instead of opening a public issue.
 
 ## Security notes
 
