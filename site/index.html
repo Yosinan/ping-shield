@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ping-shield · Real-time tripwire for Linux</title>
+<meta name="description" content="ping-shield watches SSH keys, auto-start entries and IDE extensions in real time, follows threat intel that matches your stack, and alerts you on Telegram exactly once. Open source, zero dependencies.">
+<meta name="theme-color" content="#07090f">
+<meta property="og:title" content="ping-shield · Real-time tripwire for Linux">
+<meta property="og:description" content="Know the moment your machine is backdoored. SSH keys, persistence and IDE extensions, watched in real time, with alerts on Telegram.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 4 6.5v8.2C4 22.3 9.1 28.4 16 30c6.9-1.6 12-7.7 12-15.3V6.5L16 2Z' fill='%2334d399'/%3E%3Cpath d='m10.5 16 3.8 3.8 7.2-7.6' fill='none' stroke='%2307090f' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #07090f;
+  --bg-raised: #0c111b;
+  --panel: #0f1622;
+  --panel-2: #131c2b;
+  --border: rgba(148, 163, 184, 0.14);
+  --border-strong: rgba(148, 163, 184, 0.26);
+  --text: #e6edf6;
+  --muted: #94a3b8;
+  --dim: #64748b;
+  --accent: #34d399;
+  --accent-ink: #052e1f;
+  --accent-2: #22d3ee;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --tg-bg: #0e1621;
+  --tg-bubble: #182533;
+  --tg-btn: #22303f;
+  --tg-link: #6ab3f3;
+  --radius: 14px;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: inherit; text-decoration: none; }
+code, pre, kbd { font-family: var(--mono); }
+.wrap { width: min(1120px, 100% - 32px); margin-inline: auto; }
+
+/* ---------- nav ---------- */
+nav {
+  position: sticky; top: 0; z-index: 20;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: rgba(7, 9, 15, 0.72);
+  border-bottom: 1px solid var(--border);
+}
+nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+.brand svg { width: 26px; height: 26px; }
+.nav-links { display: flex; gap: 22px; margin-left: 8px; font-size: 14.5px; color: var(--muted); }
+.nav-links a:hover { color: var(--text); }
+.nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: 999px; font-size: 13.5px;
+  border: 1px solid var(--border-strong); color: var(--text); background: rgba(255,255,255,.02);
+  transition: border-color .2s, background .2s;
+}
+.pill:hover { border-color: var(--accent); background: rgba(52,211,153,.06); }
+.pill svg { width: 16px; height: 16px; }
+.version { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+
+/* ---------- hero ---------- */
+header.hero { position: relative; padding: 84px 0 72px; }
+.hero .wrap { position: relative; z-index: 1; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; }
+.eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 {
+  font-size: clamp(38px, 5.4vw, 64px); line-height: 1.04; letter-spacing: -0.035em;
+  margin: 18px 0 20px; font-weight: 800;
+}
+.lede { font-size: 18.5px; color: var(--muted); max-width: 560px; margin: 0 0 32px; }
+.lede strong { color: var(--text); font-weight: 600; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.install {
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 13px 14px 13px 18px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  font-family: var(--mono); font-size: 15px;
+}
+.install .prompt { color: var(--accent); user-select: none; }
+.copy {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 8px;
+  border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer;
+  transition: color .2s, border-color .2s, background .2s;
+}
+.copy:hover { color: var(--text); border-color: var(--border-strong); background: rgba(255,255,255,.04); }
+.copy.done { color: var(--accent); border-color: rgba(52,211,153,.5); }
+.copy svg { width: 15px; height: 15px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 13px 18px; border-radius: 12px;
+  font-weight: 600; font-size: 15px; transition: transform .15s, background .2s, border-color .2s;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { transform: translateY(-1px); background: #4ade9f; }
+.btn-ghost { border: 1px solid var(--border-strong); }
+.btn-ghost:hover { border-color: var(--text); }
+.btn svg { width: 18px; height: 18px; }
+.platforms { margin-top: 22px; font-size: 13.5px; color: var(--dim); display: flex; gap: 14px; flex-wrap: wrap; }
+.platforms span { display: inline-flex; align-items: center; gap: 6px; }
+.platforms .ok { color: var(--accent); }
+
+/* ---------- phone / telegram mock ---------- */
+.phone {
+  justify-self: center; width: 100%; max-width: 400px; aspect-ratio: 9 / 16.6;
+  border-radius: 38px; padding: 10px; position: relative;
+  background: linear-gradient(160deg, #1d2633, #0b1018);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 30px 60px -30px rgba(0,0,0,.9);
+}
+.screen { height: 100%; border-radius: 30px; overflow: hidden; background: var(--tg-bg); display: flex; flex-direction: column; }
+.tg-head {
+  display: flex; align-items: center; gap: 11px; padding: 16px 16px 12px;
+  background: #17212b; border-bottom: 1px solid rgba(0,0,0,.35);
+}
+.tg-avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #34d399, #0ea5e9); }
+.tg-avatar svg { width: 20px; height: 20px; }
+.tg-name { font-weight: 600; font-size: 15px; line-height: 1.2; }
+.tg-status { font-size: 12.5px; color: var(--tg-link); }
+.tg-body {
+  flex: 1; padding: 14px 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(106,179,243,.05), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(52,211,153,.05), transparent 40%), var(--tg-bg);
+}
+.msg { max-width: 94%; transform-origin: bottom left; }
+.hidden { display: none !important; }
+.msg.enter { animation: pop .38s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+.bubble {
+  background: var(--tg-bubble); border-radius: 14px 14px 14px 4px; padding: 9px 11px 7px;
+  font-size: 12.6px; line-height: 1.45; color: #e9eef4; position: relative;
+}
+.bubble b { font-weight: 600; }
+.bubble code { font-size: 11.6px; color: #9fd0ff; }
+.bubble pre {
+  margin: 7px 0; padding: 7px 8px; border-radius: 6px; background: rgba(0,0,0,.28);
+  font-size: 10.8px; line-height: 1.5; overflow: hidden; white-space: pre;
+}
+.bubble pre .add { color: #7ee2a8; }
+.bubble pre .ctx { color: #8ea2b8; }
+.bubble blockquote { margin: 6px 0; padding: 2px 0 2px 8px; border-left: 2px solid var(--tg-link); color: #c3d0dd; }
+.bubble .tag { color: var(--tg-link); }
+.bubble .time { float: right; margin: 4px 0 0 10px; font-size: 10.5px; color: #6d8195; }
+.bubble .gap { height: 6px; }
+.kbd-row { display: flex; gap: 5px; margin-top: 5px; }
+.kbd-btn {
+  flex: 1; text-align: center; padding: 7px 6px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  background: var(--tg-btn); color: #e9eef4; transition: background .25s, transform .15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kbd-btn.press { transform: scale(.95); background: #2f4357; }
+.kbd-btn.done { background: rgba(52,211,153,.16); color: #a7f3d0; }
+.typing { display: inline-flex; gap: 4px; padding: 11px 13px; background: var(--tg-bubble); border-radius: 14px 14px 14px 4px; width: max-content; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: #7d93a8; animation: blink 1.2s infinite; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes blink { 0%,60%,100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-2px); } }
+.tap {
+  position: absolute; width: 34px; height: 34px; border-radius: 50%; pointer-events: none; opacity: 0;
+  background: rgba(255,255,255,.35); box-shadow: 0 0 0 6px rgba(255,255,255,.12); transform: translate(-50%,-50%) scale(.6);
+}
+.tap.show { animation: tap .7s ease-out; }
+@keyframes tap { 0% { opacity: 0; transform: translate(-50%,-50%) scale(1.3); } 35% { opacity: 1; transform: translate(-50%,-50%) scale(.8); } 100% { opacity: 0; transform: translate(-50%,-50%) scale(.7); } }
+.tg-input { display: flex; align-items: center; gap: 10px; padding: 10px 14px 16px; background: #17212b; color: #6d8195; font-size: 13px; }
+.tg-input .placeholder { flex: 1; }
+.tg-input .menu { padding: 3px 9px; border-radius: 7px; background: #2b5278; color: #dfeaf5; font-size: 12px; font-weight: 600; }
+
+/* ---------- stats ---------- */
+.stats { border-block: 1px solid var(--border); background: var(--bg-raised); }
+.stats .wrap { display: grid; grid-template-columns: repeat(4, 1fr); }
+.stat { padding: 26px 20px; text-align: center; }
+.stat + .stat { border-left: 1px solid var(--border); }
+.stat b { display: block; font-size: 30px; letter-spacing: -0.03em; font-weight: 750; }
+.stat span { font-size: 13.5px; color: var(--muted); }
+
+/* ---------- sections ---------- */
+section { padding: 104px 0; position: relative; }
+.kicker { font-family: var(--mono); font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h2 { font-size: clamp(30px, 3.6vw, 42px); line-height: 1.12; letter-spacing: -0.028em; margin: 12px 0 14px; font-weight: 760; }
+.sub { color: var(--muted); font-size: 17.5px; max-width: 640px; margin: 0 0 48px; }
+.section-head.center { text-align: center; }
+.section-head.center .sub { margin-inline: auto; }
+
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card {
+  padding: 26px 24px; border-radius: var(--radius); background: linear-gradient(180deg, var(--panel), rgba(15,22,34,.4));
+  border: 1px solid var(--border); transition: border-color .25s, transform .25s;
+}
+.card:hover { border-color: rgba(52,211,153,.35); transform: translateY(-2px); }
+.icon {
+  width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 18px;
+  background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.25); color: var(--accent);
+}
+.icon svg { width: 21px; height: 21px; }
+.card h3 { margin: 0 0 8px; font-size: 17.5px; letter-spacing: -0.01em; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.card code { font-size: 13px; color: #b6c2d1; }
+
+/* how it works */
+.how { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 56px; align-items: start; }
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.steps li { position: relative; padding: 0 0 30px 56px; counter-increment: s; }
+.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: -2px; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  background: var(--panel-2); border: 1px solid var(--border-strong); color: var(--accent);
+}
+.steps li:not(:last-child)::after { content: ""; position: absolute; left: 17px; top: 38px; bottom: 4px; width: 1px; background: var(--border-strong); }
+.steps h3 { margin: 0 0 4px; font-size: 17px; }
+.steps p { margin: 0; color: var(--muted); font-size: 15px; }
+.terminal { border-radius: var(--radius); border: 1px solid var(--border-strong); background: #0a0f17; overflow: hidden; box-shadow: 0 30px 80px -40px rgba(0,0,0,.9); }
+.term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: #0d1420; }
+.term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #334155; }
+.term-bar span { margin-left: 8px; font-size: 12.5px; color: var(--dim); font-family: var(--mono); }
+.terminal pre { margin: 0; padding: 18px 20px; font-size: 13.5px; line-height: 1.75; overflow-x: auto; color: #cbd5e1; }
+.terminal .p { color: var(--accent); }
+.terminal .ok { color: #86efac; }
+.terminal .c { color: var(--dim); }
+
+/* watched */
+.watch-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.watch {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center;
+  padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel);
+}
+.watch .emoji { font-size: 22px; }
+.watch h4 { margin: 0; font-size: 15.5px; }
+.watch p { margin: 2px 0 0; font-size: 13px; color: var(--dim); font-family: var(--mono); overflow-wrap: anywhere; }
+.badge { font-size: 11.5px; padding: 4px 9px; border-radius: 999px; white-space: nowrap; font-weight: 600; }
+.badge.rt { color: #a7f3d0; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.3); }
+.badge.tm { color: #bae6fd; background: rgba(34,211,238,.08); border: 1px solid rgba(34,211,238,.25); }
+
+/* sources */
+.src-groups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.src { padding: 22px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); }
+.src h4 { margin: 0 0 14px; font-size: 14.5px; color: var(--muted); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { font-size: 13px; padding: 5px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+.chip.star { border-color: rgba(251,191,36,.4); }
+.add-any {
+  margin-top: 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 18px 22px; border-radius: var(--radius); border: 1px dashed var(--border-strong); color: var(--muted);
+}
+.add-any code { color: var(--text); font-size: 14px; }
+
+/* trust */
+.trust { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.trust div { padding: 28px 26px; background: var(--panel); }
+.trust div:not(:nth-child(3n)) { border-right: 1px solid var(--border); }
+.trust div:nth-child(-n+3) { border-bottom: 1px solid var(--border); }
+.trust h4 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 9px; }
+.trust h4 svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.trust p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+/* roadmap */
+.road { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.road div { padding: 22px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); }
+.road .state { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.road .now { color: var(--accent); } .road .next { color: var(--amber); } .road .later { color: var(--dim); }
+.road h4 { margin: 8px 0 6px; font-size: 17px; }
+.road p { margin: 0; font-size: 14px; color: var(--muted); }
+
+/* faq */
+.faq { max-width: 780px; margin-inline: auto; }
+details { border-bottom: 1px solid var(--border); }
+summary {
+  list-style: none; cursor: pointer; padding: 22px 4px; font-weight: 600; font-size: 17px;
+  display: flex; justify-content: space-between; gap: 20px; align-items: center;
+}
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; font-size: 22px; color: var(--muted); transition: transform .2s; font-weight: 400; }
+details[open] summary::after { transform: rotate(45deg); }
+details p { margin: 0 4px 22px; color: var(--muted); }
+details code { color: #cbd5e1; font-size: 14px; }
+
+/* final cta + footer */
+.final {
+  text-align: center; padding: 72px 28px; border-radius: 22px; border: 1px solid var(--border-strong);
+  background: var(--panel);
+}
+.final h2 { margin-top: 0; }
+.final .cta { justify-content: center; }
+footer { padding: 48px 0 56px; color: var(--dim); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+footer nav, footer .links { all: unset; display: flex; gap: 20px; }
+footer a:hover { color: var(--text); }
+
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+.reveal.in { opacity: 1; transform: none; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 980px) {
+  .hero .wrap, .how { grid-template-columns: 1fr; }
+  .phone { max-width: 360px; }
+  .features, .trust { grid-template-columns: repeat(2, 1fr); }
+  .src-groups, .road { grid-template-columns: repeat(2, 1fr); }
+  .trust div { border-right: none !important; border-bottom: 1px solid var(--border); }
+  .trust div:nth-child(odd) { border-right: 1px solid var(--border) !important; }
+  .nav-links { display: none; }
+}
+@media (max-width: 640px) {
+  header.hero { padding: 48px 0 56px; }
+  section { padding: 72px 0; }
+  .features, .trust, .watch-grid, .src-groups, .road { grid-template-columns: 1fr; }
+  .trust div:nth-child(odd) { border-right: none !important; }
+  .stats .wrap { grid-template-columns: repeat(2, 1fr); }
+  .stat:nth-child(3) { border-left: none; }
+  .stat:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+  .install { font-size: 14px; width: 100%; justify-content: space-between; }
+  .cta .btn { flex: 1; justify-content: center; }
+  .pill.gh-text span { display: none; }
+  .watch { grid-template-columns: auto 1fr; }
+  .watch .badge { grid-column: 2; justify-self: start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="ping-shield home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 4 6.5v8.2C4 22.3 9.1 28.4 16 30c6.9-1.6 12-7.7 12-15.3V6.5L16 2Z" fill="#34d399"/><path d="m10.5 16 3.8 3.8 7.2-7.6" fill="none" stroke="#07090f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      ping-shield
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#sources">Sources</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-right">
+      <a class="pill" href="https://pypi.org/project/ping-shield/" target="_blank" rel="noopener">PyPI <span class="version" data-version>v1.2.0</span></a>
+      <a class="pill gh-text" href="https://github.com/Yosinan/ping-shield" target="_blank" rel="noopener" aria-label="GitHub repository">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">Open source · MIT · Zero dependencies</span>
+      <h1>Know the moment your machine is backdoored.</h1>
+      <p class="lede">
+        ping-shield is a <strong>real-time tripwire for Linux workstations</strong>. It watches the places attackers
+        use to stay on your machine: SSH keys, auto-start entries and IDE extensions. It also follows the threat
+        news that matches your stack, and alerts you on Telegram within seconds. <strong>Each finding is sent exactly once.</strong>
+      </p>
+      <div class="cta">
+        <div class="install">
+          <span><span class="prompt">$</span> pipx install ping-shield</span>
+          <button class="copy" data-copy="pipx install ping-shield" aria-label="Copy install command">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+        <a class="btn btn-ghost" href="#how">How it works
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+      <div class="platforms">
+        <span class="ok">● Linux (Fedora, Ubuntu, Debian, Arch…)</span>
+        <span>○ macOS &amp; Windows on the roadmap</span>
+      </div>
+    </div>
+
+    <div class="phone" aria-label="Example Telegram alerts from ping-shield">
+      <div class="screen">
+        <div class="tg-head">
+          <div class="tg-avatar"><svg viewBox="0 0 32 32"><path d="M16 2 4 6.5v8.2C4 22.3 9.1 28.4 16 30c6.9-1.6 12-7.7 12-15.3V6.5L16 2Z" fill="#fff"/></svg></div>
+          <div><div class="tg-name">ping-shield</div><div class="tg-status" id="tg-status">bot</div></div>
+        </div>
+        <div class="tg-body" id="chat">
+          <div class="msg hidden" id="m1">
+            <div class="bubble">
+              🚨 <b>SSH Trust Change</b><br><code>~/.ssh/authorized_keys</code>
+              <div class="gap"></div>
+              🖥 <b>Host:</b> <code>laptop</code><br>
+              📊 <b>Changes:</b> 🟢 1 added<br>
+              ⚡ <b>Caught:</b> in real time
+              <pre><span class="ctx"> ssh-ed25519 AAAAC3Nza… you@laptop</span>
+<span class="add">+ssh-rsa AAAAB3Nza… root@203.0.113.7</span></pre>
+              <b>⚠️ Not you?</b> This file controls who can log in to your account.
+              <div class="gap"></div>
+              <span class="tag">#ssh #laptop</span> · 🛡 ping-shield <span class="time">14:05</span>
+            </div>
+            <div class="kbd-row" id="m1-kbd">
+              <div class="kbd-btn" id="btn-me">✅ It was me</div>
+              <div class="kbd-btn">🚨 Not me</div>
+            </div>
+          </div>
+          <div class="msg hidden" id="m2">
+            <div class="bubble">
+              🔴 <b>Critical Threat</b>
+              <div class="gap"></div>
+              <b>Trojanized VS Code extension drops persistent SSH backdoor</b>
+              <blockquote>Attackers published a look-alike extension that adds their key to authorized_keys…</blockquote>
+              🎯 <b>Affects you:</b> VS Code · SSH<br>
+              🏷 <b>Signals:</b> backdoor · supply chain<br>
+              🗞 <b>Source:</b> The Hacker News
+              <span class="time">14:07</span>
+            </div>
+            <div class="kbd-row"><div class="kbd-btn">📖 Read full article</div></div>
+            <div class="kbd-row"><div class="kbd-btn">🔕 Mute “VS Code”</div><div class="kbd-btn">💬 Telegram post</div></div>
+          </div>
+          <div class="typing hidden" id="typing"><i></i><i></i><i></i></div>
+        </div>
+        <div class="tg-input"><span class="menu">Menu</span><span class="placeholder">Message</span>🎙</div>
+      </div>
+      <div class="tap" id="tap"></div>
+    </div>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="wrap">
+    <div class="stat"><b>~2&nbsp;s</b><span>from change to alert</span></div>
+    <div class="stat"><b>24</b><span>persistence checks</span></div>
+    <div class="stat"><b>17</b><span>curated intel sources</span></div>
+    <div class="stat"><b>0</b><span>runtime dependencies</span></div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Features</div>
+      <h2>A small tool that watches the right places.</h2>
+      <p class="sub">Attackers rarely break in twice. They leave something behind that brings them back. ping-shield watches those places and tells you when something new appears.</p>
+    </div>
+    <div class="features">
+      <div class="card reveal">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+        <h3>Real-time detection</h3>
+        <p>Linux inotify wakes ping-shield the moment a watched directory changes. Alerts arrive in about two seconds, and the watcher uses no CPU while idle.</p>
+      </div>
+      <div class="card reveal">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg></div>
+        <h3>SSH &amp; persistence</h3>
+        <p><code>authorized_keys</code>, crontab, systemd user units, autostart, <code>environment.d</code> and your shell rc files, each with an exact diff.</p>
+      </div>
+      <div class="card reveal">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+        <h3>IDE extension integrity</h3>
+        <p>Reports installs, removals and updates in VS Code, Cursor, VSCodium and Windsurf. Extension code changed without a version bump is flagged as possible tampering.</p>
+      </div>
+      <div class="card reveal">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg></div>
+        <h3>Threat intel for your stack</h3>
+        <p>Follows RSS feeds, official advisories and public Telegram channels. You only hear about severe threats that mention software installed on your machine.</p>
+      </div>
+      <div class="card reveal">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h3>Exactly-once alerts</h3>
+        <p>A change is recorded as seen only after Telegram confirms delivery. If the network is down, the alert waits for the next run. A story covered by several outlets is sent once, matched by link, title and CVE.</p>
+      </div>
+      <div class="card reveal">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>An interactive bot</h3>
+        <p>Tap <b>It was me</b> or <b>Not me</b> to get a response checklist, or mute a noisy keyword. Use <code>/scan</code>, <code>/status</code> and <code>/catalog</code> from your phone.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="background: var(--bg-raised); border-block: 1px solid var(--border);">
+  <div class="wrap how">
+    <div class="reveal">
+      <div class="kicker">How it works</div>
+      <h2>Up and running in three commands.</h2>
+      <p class="sub" style="margin-bottom:36px">No root required, and no YAML or systemd files to write. ping-shield sets itself up as a user service.</p>
+      <ol class="steps">
+        <li><h3>Connect Telegram</h3><p><code>--init</code> stores your bot token with owner-only permissions, and can find your chat id for you.</p></li>
+        <li><h3>Record a baseline</h3><p>The first scan fingerprints every watched location quietly. After that, only changes produce alerts.</p></li>
+        <li><h3>Watch &amp; alert</h3><p>The real-time watcher catches changes within seconds. A full scan every 15 minutes covers everything else.</p></li>
+      </ol>
+    </div>
+    <div class="terminal reveal" aria-label="Terminal example">
+      <div class="term-bar"><i></i><i></i><i></i><span>~ — bash</span></div>
+<pre><span class="p">$</span> pipx install ping-shield
+<span class="p">$</span> pshield --init
+<span class="ok">✓ Token verified: bot @YourShieldBot</span>
+<span class="ok">✓ Message sent. Check Telegram.</span>
+<span class="p">$</span> pshield --test
+<span class="ok">[PASS]</span> Test 0: Telegram connectivity
+<span class="ok">[PASS]</span> Test 1: SSH monitoring (~/.ssh/authorized_keys)
+<span class="ok">[PASS]</span> Test 2: Threat-intel news alerting
+<span class="p">$</span> pshield --setup-service
+<span class="ok">✓ enabled and started ping-shield.timer (every 15 min)</span>
+<span class="ok">✓ enabled and started ping-shield-bot.service</span>
+<span class="c"># that's it. go back to work.</span></pre>
+    </div>
+  </div>
+</section>
+
+<section id="watched">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Coverage</div>
+      <h2>What ping-shield watches</h2>
+      <p class="sub">The places attackers use to keep access to a machine, checked against a SHA-256 baseline.</p>
+    </div>
+    <div class="watch-grid">
+      <div class="watch reveal"><span class="emoji">🔑</span><div><h4>SSH trust</h4><p>~/.ssh/authorized_keys · rc · environment</p></div><span class="badge rt">real-time</span></div>
+      <div class="watch reveal"><span class="emoji">⚙️</span><div><h4>systemd user units</h4><p>~/.config/systemd/user/</p></div><span class="badge rt">real-time</span></div>
+      <div class="watch reveal"><span class="emoji">🐚</span><div><h4>Shell start-up files</h4><p>.bashrc · .bashrc.d · .profile · .zshrc · config.fish</p></div><span class="badge rt">real-time</span></div>
+      <div class="watch reveal"><span class="emoji">🖥</span><div><h4>Desktop autostart &amp; environment</h4><p>~/.config/autostart · environment.d</p></div><span class="badge rt">real-time</span></div>
+      <div class="watch reveal"><span class="emoji">🧩</span><div><h4>IDE extensions</h4><p>~/.vscode · ~/.cursor · ~/.vscode-oss · ~/.windsurf</p></div><span class="badge rt">real-time</span></div>
+      <div class="watch reveal"><span class="emoji">⏰</span><div><h4>User crontab</h4><p>crontab -l</p></div><span class="badge tm">every 15 min</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="sources" style="padding-top: 24px;">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Threat intel</div>
+      <h2>Your news feed, filtered to your stack.</h2>
+      <p class="sub">An item alerts only if it's <b>severe</b> (actively exploited, a zero-day, a backdoor, CVSS ≥ 9…) <b>and</b> it mentions something installed on this machine. You add sources from the terminal or from Telegram.</p>
+    </div>
+    <div class="src-groups">
+      <div class="src reveal"><h4>📰 Security news</h4><div class="chips"><span class="chip">The Hacker News</span><span class="chip">BleepingComputer</span><span class="chip">Krebs on Security</span><span class="chip">Dark Reading</span></div></div>
+      <div class="src reveal"><h4>🏛 Official advisories</h4><div class="chips"><span class="chip">CISA</span><span class="chip">oss-security</span><span class="chip">GitHub Security</span><span class="chip">PyPI</span><span class="chip">Socket</span></div></div>
+      <div class="src reveal"><h4>🐧 Your distro</h4><div class="chips"><span class="chip">Ubuntu USN</span><span class="chip">Debian DSA</span><span class="chip">Fedora</span><span class="chip">Arch ASA</span></div></div>
+      <div class="src reveal"><h4>✈️ Telegram channels</h4><div class="chips"><span class="chip">@thehackernews</span><span class="chip">@bleepingcomputer</span><span class="chip">@cveNotify</span></div></div>
+    </div>
+    <div class="add-any reveal">
+      <span>…or any RSS/Atom feed or public Telegram channel:</span>
+      <code><span style="color:var(--accent)">$</span> pshield --add-source t.me/yourchannel</code>
+    </div>
+  </div>
+</section>
+
+<section id="trust" style="background: var(--bg-raised); border-block: 1px solid var(--border);">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <div class="kicker">Trust</div>
+      <h2>Built like a security tool should be.</h2>
+      <p class="sub">A tool that guards your supply chain shouldn't add risk to it.</p>
+    </div>
+    <div class="trust reveal">
+      <div><h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Zero dependencies</h4><p>Only the Python standard library, so no third-party packages to audit or trust.</p></div>
+      <div><h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>No root, ever</h4><p>Runs as your user, as a systemd user service. Nothing system-wide is installed.</p></div>
+      <div><h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Local by design</h4><p>Baselines stay in <code>~/.config/ping-shield</code> with owner-only permissions. Alerts are the only thing that leaves your machine.</p></div>
+      <div><h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Secrets redacted</h4><p>API keys, passwords and tokens in diffs are masked before anything is sent to Telegram.</p></div>
+      <div><h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Your bot, your chat</h4><p>The bot answers only the chat you configured. Strangers are refused.</p></div>
+      <div><h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Open source</h4><p>MIT licensed. Read every line on GitHub before you run it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Roadmap</div>
+      <h2>Linux today. More platforms next.</h2>
+      <p class="sub">The same zero-dependency approach, extended to the other operating systems developers use.</p>
+    </div>
+    <div class="road">
+      <div class="reveal"><span class="state now">Available</span><h4>Linux</h4><p>Real-time watching, the bot and threat intel on any systemd distribution.</p></div>
+      <div class="reveal"><span class="state next">Planned</span><h4>macOS</h4><p>LaunchAgents, login items and zsh, with kqueue watching and a launchd schedule.</p></div>
+      <div class="reveal"><span class="state next">Planned</span><h4>Windows</h4><p>Registry Run keys, the Startup folder and scheduled tasks, scheduled with Task Scheduler.</p></div>
+      <div class="reveal"><span class="state later">Exploring</span><h4>More channels &amp; checks</h4><p>Discord, Slack and ntfy alerts, plus package-manager and git hook tampering.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="padding-top: 24px;">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <div class="kicker">FAQ</div>
+      <h2>Questions, answered.</h2>
+    </div>
+    <div class="faq reveal">
+      <details><summary>Is it an antivirus?</summary><p>No. It doesn't scan every file for malware, and it doesn't watch processes or network traffic. ping-shield is a tripwire: it tells you when the places attackers use to keep access to a machine change. It complements other security tools rather than replacing them.</p></details>
+      <details><summary>Does it send my data anywhere?</summary><p>Only the alerts, and only to your own Telegram bot. Baselines, configuration and the news cache stay in <code>~/.config/ping-shield</code>. Values that look like credentials are masked before an alert is sent.</p></details>
+      <details><summary>What happens when I change a file myself?</summary><p>You get one alert, and you tap <b>✅ It was me</b>. The new state becomes the baseline, so you're never alerted about the same change twice.</p></details>
+      <details><summary>Do I need my own Telegram bot?</summary><p>Yes, and it takes about a minute: message @BotFather, send <code>/newbot</code>, then paste the token into <code>pshield --init</code>. With your own bot, nobody else can read your alerts or send messages as your bot.</p></details>
+      <details><summary>Does it need root?</summary><p>No. Everything runs as your user, and the services are systemd user units. To keep scanning while you're logged out, run <code>loginctl enable-linger</code> once.</p></details>
+      <details><summary>Which Telegram channels can I follow?</summary><p>Any public channel. ping-shield reads its public web preview, so it needs no login or API key. Private channels can't be read this way.</p></details>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top: 24px;">
+  <div class="wrap">
+    <div class="final reveal">
+      <h2>Install it before an attacker gets in.</h2>
+      <p class="sub" style="margin-inline:auto; margin-bottom: 30px;">Free, open source, and running in under five minutes.</p>
+      <div class="cta">
+        <div class="install">
+          <span><span class="prompt">$</span> pipx install ping-shield</span>
+          <button class="copy" data-copy="pipx install ping-shield" aria-label="Copy install command">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+        <a class="btn btn-primary" href="https://github.com/Yosinan/ping-shield" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
+          Star on GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Yoseph Zewdu · MIT License</span>
+    <div class="links">
+      <a href="https://github.com/Yosinan/ping-shield" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://pypi.org/project/ping-shield/" target="_blank" rel="noopener">PyPI</a>
+      <a href="https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="https://github.com/Yosinan/ping-shield/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // Copy buttons
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(btn.dataset.copy); } catch (_) { return; }
+      btn.classList.add("done");
+      setTimeout(() => btn.classList.remove("done"), 1400);
+    });
+  });
+
+  // Latest version from PyPI (falls back to the version baked into the page)
+  fetch("https://pypi.org/pypi/ping-shield/json")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (d && d.info && d.info.version) {
+        document.querySelectorAll("[data-version]").forEach((el) => (el.textContent = "v" + d.info.version));
+      }
+    })
+    .catch(() => {});
+
+  // Scroll reveal
+  const io = "IntersectionObserver" in window && new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach((el) => (io ? io.observe(el) : el.classList.add("in")));
+
+  // Telegram demo timeline
+  const $ = (id) => document.getElementById(id);
+  const m1 = $("m1"), m2 = $("m2"), typing = $("typing"), status = $("tg-status");
+  const btnMe = $("btn-me"), kbd = $("m1-kbd"), tap = $("tap"), phone = document.querySelector(".phone");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const show = (el) => { el.classList.remove("hidden"); el.classList.remove("enter"); void el.offsetWidth; el.classList.add("enter"); };
+  const hide = (el) => el.classList.add("hidden");
+  const confirm = () => {
+    kbd.innerHTML = '<div class="kbd-btn done">✅ Confirmed by you · 14:05</div>';
+  };
+  const reset = () => {
+    [m1, m2, typing].forEach(hide);
+    kbd.innerHTML = '<div class="kbd-btn" id="btn-me">✅ It was me</div><div class="kbd-btn">🚨 Not me</div>';
+  };
+
+  if (reduced) { show(m1); confirm(); show(m2); return; }
+
+  async function loop() {
+    for (;;) {
+      reset();
+      await wait(900);
+      status.textContent = "typing…"; show(typing);
+      await wait(1300);
+      hide(typing); status.textContent = "bot"; show(m1);
+      await wait(2600);
+      const b = document.getElementById("btn-me");
+      if (b) {
+        const pr = phone.getBoundingClientRect(), br = b.getBoundingClientRect();
+        tap.style.left = (br.left - pr.left + br.width / 2) + "px";
+        tap.style.top = (br.top - pr.top + br.height / 2) + "px";
+        tap.classList.remove("show"); void tap.offsetWidth; tap.classList.add("show");
+        b.classList.add("press");
+        await wait(380);
+        confirm();
+      }
+      await wait(1700);
+      status.textContent = "typing…"; show(typing);
+      await wait(1200);
+      hide(typing); status.textContent = "bot"; show(m2);
+      await wait(6500);
+    }
+  }
+  loop();
+})();
+</script>
+</body>
+</html>

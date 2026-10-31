@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- The package Homepage link now points to the project website, https://yosinan.github.io/ping-shield/.
+
 ## [1.2.0] - 2026-10-31
 
 ### Added

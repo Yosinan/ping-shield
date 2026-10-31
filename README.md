@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/ping-shield?cacheSeconds=3600)](https://pypi.org/project/ping-shield/)
 [![Python](https://img.shields.io/pypi/pyversions/ping-shield?cacheSeconds=3600)](https://pypi.org/project/ping-shield/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Yosinan/ping-shield/blob/main/LICENSE)
+[![Website](https://img.shields.io/badge/website-ping--shield-34d399)](https://yosinan.github.io/ping-shield/)
 
 **A real-time tripwire for Linux workstations.** ping-shield watches the places attackers use to keep
 access to your machine: SSH keys, crontabs, systemd user services, autostart entries, shell start-up
