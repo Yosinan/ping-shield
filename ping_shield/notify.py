@@ -337,6 +337,20 @@ class TelegramNotifier:
         result = self._call("getUpdates", payload, timeout=poll_seconds + 15)
         return result if isinstance(result, list) else []
 
+    def edit_message_text(self, message_id: int, text: str, reply_markup: Optional[Dict[str, Any]] = None,
+                          parse_mode: Optional[str] = "HTML") -> None:
+        payload: Dict[str, Any] = {"chat_id": self.chat_id, "message_id": message_id, "text": text,
+                                   "link_preview_options": {"is_disabled": True}}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        self._call("editMessageText", payload)
+
+    def send_chat_action(self, action: str = "typing") -> None:
+        """Show "<bot> is typing…" in the chat for about five seconds."""
+        self._call("sendChatAction", {"chat_id": self.chat_id, "action": action})
+
     def answer_callback(self, callback_id: str, text: str = "", alert: bool = False) -> None:
         self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:200], "show_alert": alert})
 

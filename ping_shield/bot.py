@@ -13,11 +13,14 @@ refusal, so a stranger who finds the bot cannot run scans or change sources.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import html
 import logging
+import re
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -89,6 +92,110 @@ def _pre(text: str) -> str:
     return f"<pre>{esc(text)}</pre>"
 
 
+class Progress:
+    """One Telegram message that animates while slow work runs, then turns into the result.
+
+    Shows a spinner, the current step with a progress bar and the elapsed time,
+    and keeps Telegram's "typing…" indicator alive.
+    """
+
+    INTERVAL = 2.0
+    SPINNER = ("◐", "◓", "◑", "◒")
+
+    def __init__(self, notifier: TelegramNotifier, title: str, reply_to: Optional[int] = None):
+        self.notifier = notifier
+        self.title = title
+        self.step = ""
+        self.index = 0
+        self.total = 0
+        self.started = time.monotonic()
+        self._frame = 0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        with contextlib.suppress(NotifyError):
+            notifier.send_chat_action()
+        self.message_id = notifier.send_message(self._text(), reply_to=reply_to)
+        self._thread = threading.Thread(target=self._animate, daemon=True)
+        self._thread.start()
+
+    @property
+    def elapsed(self) -> int:
+        return int(time.monotonic() - self.started)
+
+    def _text(self) -> str:
+        lines = [f"{self.SPINNER[self._frame % len(self.SPINNER)]} <b>{esc(self.title)}…</b>"]
+        if self.total:
+            filled = round(10 * self.index / (self.total + 1))
+            lines.append(f"{'▰' * filled}{'▱' * (10 - filled)}  step {self.index} of {self.total}")
+        if self.step:
+            lines.append(f"<i>{esc(self.step)}</i>")
+        lines.append(f"⏱ {self.elapsed}s")
+        return "\n".join(lines)
+
+    def _refresh(self) -> None:
+        with self._lock:
+            if self._stop.is_set():
+                return
+            try:
+                self.notifier.edit_message_text(self.message_id, self._text())
+            except NotifyError as exc:
+                log.debug("progress update skipped: %s", exc)
+
+    def set_step(self, step: str, index: int = 0, total: int = 0) -> None:
+        self.step, self.index, self.total = step, index, total
+        self._refresh()
+
+    def _animate(self) -> None:
+        while not self._stop.wait(self.INTERVAL):
+            self._frame += 1
+            with contextlib.suppress(NotifyError):
+                self.notifier.send_chat_action()
+            self._refresh()
+
+    def finish(self, text: str, markup: Optional[Dict[str, Any]] = None) -> None:
+        with self._lock:
+            self._stop.set()
+        self._thread.join(timeout=5)
+        try:
+            self.notifier.edit_message_text(self.message_id, text, reply_markup=markup)
+        except NotifyError:
+            self.notifier.send_message(text, reply_markup=markup)
+
+
+_MONITOR_RE = re.compile(r"monitor: (\d+) baselined, (\d+) unchanged, (\d+) change\(s\), (\d+) error\(s\)")
+_INTEL_RE = re.compile(r"intel: (\d+) item\(s\), (\d+) alerted, (\d+) duplicate, (\d+) not relevant, "
+                       r"(\d+) too old, (\d+) deferred")
+_BUSY = "another ping-shield instance is running"
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def scan_summary(monitor_out: str, intel_out: str, seconds: int) -> str:
+    """Turn the CLI's scan output into a compact result card."""
+    m, n = _MONITOR_RE.search(monitor_out), _INTEL_RE.search(intel_out)
+    if not m or not n:
+        return "🔍 <b>Scan finished</b>\n" + _pre(monitor_out + "\n" + intel_out)
+    baselined, unchanged, changes, errors = map(int, m.groups())
+    items, alerted, _dup, _irrelevant, _old, deferred = map(int, n.groups())
+    checks = baselined + unchanged + changes
+    system = f"⚠️ {_plural(changes, 'change')}, see the alerts above" if changes else "no changes ✓"
+    news = f"🔔 {_plural(alerted, 'new alert')}" if alerted else "no new threats ✓"
+    if deferred:
+        news += f" · {deferred} queued for the next run"
+    headline = "⚠️ <b>Scan complete: action needed</b>" if changes else "✅ <b>Scan complete</b>"
+    lines = [f"{headline} · {seconds}s", "",
+             f"🛡 <b>System:</b> {_plural(checks, 'check')} · {system}",
+             f"📰 <b>News:</b> {_plural(items, 'item')} read · {news}"]
+    problems = [l.strip().split(": ", 1)[-1] for l in (monitor_out + "\n" + intel_out).splitlines()
+                if l.strip().startswith(("error:", "warning:"))]
+    if problems or errors:
+        lines += ["", "<b>Problems</b>"] + [f"• {esc(p)}" for p in problems[:5]]
+    lines += ["", f"<i>{BRAND} · {esc(local_time())}</i>"]
+    return "\n".join(lines)
+
+
 class Bot:
     def __init__(
         self,
@@ -114,7 +221,7 @@ class Bot:
 
     def _run_cli(self, *args: str, timeout: int = 600) -> str:
         proc = subprocess.run([*self.cli, *args], capture_output=True, text=True, timeout=timeout, check=False)
-        return proc.stdout + (("\n" + proc.stderr) if proc.returncode and proc.stderr else "")
+        return proc.stdout + ("\n" + proc.stderr if proc.stderr else "")
 
     @staticmethod
     def _replace_button(markup: Dict[str, Any], data: str, new: Dict[str, Any],
@@ -192,6 +299,9 @@ class Bot:
             self.notifier.answer_callback(query["id"], f"🔕 “{value}” muted. Undo with /unmute {value}")
             return
         if action == "add":
+            name = getattr(sources.lookup(sources.normalize(value)), "name", value) if value else value
+            self.notifier.edit_reply_markup(chat["id"], message_id, self._replace_button(
+                markup, data, {"text": f"⏳ Adding {name}…", "callback_data": "noop"}))
             result = add_sources(load_config(apply_env=False), [value], state_path())[0]
             label = f"✅ {result.name or value}" if result.ok else f"⚠️ {result.name or value}"
             self.notifier.edit_reply_markup(chat["id"], message_id,
@@ -218,11 +328,19 @@ class Bot:
         self._reply(HELP)
 
     def cmd_status(self, arg: str, config: Config, message_id: Optional[int]) -> None:
-        self._reply("📋 <b>Status</b>\n" + _pre(self._run_cli("--status", timeout=60)), reply_to=message_id)
+        progress = Progress(self.notifier, "Collecting status", reply_to=message_id)
+        progress.finish("📋 <b>Status</b>\n" + _pre(self._run_cli("--status", timeout=60)))
 
     def cmd_scan(self, arg: str, config: Config, message_id: Optional[int]) -> None:
-        self._reply("⏳ Scanning… alerts arrive as separate messages.", reply_to=message_id)
-        self._reply("🔍 <b>Scan finished</b>\n" + _pre(self._run_cli("--run")), reply_to=message_id)
+        progress = Progress(self.notifier, "Scanning this machine", reply_to=message_id)
+        progress.set_step("Checking SSH keys, auto-start entries and IDE extensions", 1, 2)
+        monitor_out = self._run_cli("--run", "--only", "monitor")
+        if _BUSY in monitor_out:
+            progress.finish("⏳ A scheduled scan is running right now. Try again in a minute.")
+            return
+        progress.set_step(f"Reading {_plural(len(config.feeds), 'news source')}", 2, 2)
+        intel_out = self._run_cli("--run", "--only", "intel")
+        progress.finish(scan_summary(monitor_out, intel_out, progress.elapsed))
 
     def cmd_sources(self, arg: str, config: Config, message_id: Optional[int]) -> None:
         if not config.feeds:
@@ -261,12 +379,16 @@ class Bot:
             self._reply("Usage: <code>/addsource https://example.com/feed.xml</code>, "
                         "<code>/addsource t.me/channel</code> or a /catalog id")
             return
-        self._reply("⏳ Checking source…", reply_to=message_id)
+        values = arg.split()
+        progress = Progress(self.notifier, "Checking source" if len(values) == 1 else "Checking sources",
+                            reply_to=message_id)
         lines = []
-        for r in add_sources(load_config(apply_env=False), arg.split(), state_path()):
+        for i, value in enumerate(values, 1):
+            progress.set_step(f"Fetching {value}", i, len(values))
+            r = add_sources(load_config(apply_env=False), [value], state_path())[0]
             icon = "✅" if r.ok else "⚠️"
             lines.append(f"{icon} <b>{esc(r.name or r.value)}</b>: {esc(r.message)}")
-        self._reply("\n".join(lines), reply_to=message_id)
+        progress.finish("\n".join(lines))
 
     def cmd_removesource(self, arg: str, config: Config, message_id: Optional[int]) -> None:
         if not arg:
