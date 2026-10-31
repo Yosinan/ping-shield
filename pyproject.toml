@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ping-shield"
 dynamic = ["version"]
-description = "Linux workstation guard: detects SSH backdoors, persistence, malicious IDE extensions and relevant high-severity threat news, and alerts to Telegram exactly once."
+description = "Real-time tripwire for Linux workstations: catches SSH backdoors, persistence and tampered IDE extensions, tracks threat intel from RSS feeds and Telegram channels, and alerts you on Telegram."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -22,6 +22,10 @@ keywords = [
     "telegram",
     "systemd",
     "vscode",
+    "cursor",
+    "inotify",
+    "intrusion-detection",
+    "realtime",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -49,6 +53,7 @@ ping-shield = "ping_shield.main:run"
 Homepage = "https://github.com/Yosinan/ping-shield"
 Repository = "https://github.com/Yosinan/ping-shield.git"
 Issues = "https://github.com/Yosinan/ping-shield/issues"
+Changelog = "https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "ping_shield/__init__.py"
@@ -57,4 +62,4 @@ path = "ping_shield/__init__.py"
 packages = ["ping_shield"]
 
 [tool.hatch.build.targets.sdist]
-include = ["ping_shield", "README.md", "LICENSE", "pyproject.toml"]
+include = ["ping_shield", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]

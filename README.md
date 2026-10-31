@@ -1,10 +1,16 @@
 # ping-shield
 
-**A tripwire for Linux developer workstations.** ping-shield watches the places attackers use to
-keep access to your machine (SSH trust files, crontabs, systemd user units, shell start-up files and
-VS Code / Cursor extensions). It also reads public security news for high-severity threats that affect
-software actually installed on your machine. Every finding is sent to your phone through Telegram
-**exactly once**.
+[![PyPI](https://img.shields.io/pypi/v/ping-shield)](https://pypi.org/project/ping-shield/)
+[![Python](https://img.shields.io/pypi/pyversions/ping-shield)](https://pypi.org/project/ping-shield/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Yosinan/ping-shield/blob/main/LICENSE)
+
+**A real-time tripwire for Linux workstations.** ping-shield watches the places attackers use to keep
+access to your machine: SSH keys, crontabs, systemd user services, autostart entries, shell start-up
+files and VS Code / Cursor extensions. When one of them changes, your phone gets a Telegram alert
+within seconds, with the exact diff. It also follows security news and official advisories (RSS feeds
+and public Telegram channels) and alerts you only about serious threats to software actually
+installed on your machine. Every finding is reported **exactly once**, and you can act on it with
+buttons in Telegram.
 
 - **Zero runtime dependencies.** It uses only the Python standard library, so a supply-chain security
   tool doesn't widen its own supply chain.
@@ -313,29 +319,30 @@ python -m pip install -e .          # editable install; the `ping-shield` comman
 ping-shield --version
 ```
 
-### 2. Start version control (new project)
+### 2. Versioning
 
-```bash
-git init
-git add .
-git commit -m "Initial release of ping-shield"
-git branch -M main
-git remote add origin git@github.com:Yosinan/ping-shield.git
-git push -u origin main
-```
+ping-shield follows [Semantic Versioning](https://semver.org/). The version has a single source:
+`__version__` in `ping_shield/__init__.py`.
 
-`.gitignore` already excludes `dist/`, virtual environments, `.pypirc` and any stray
-`config.json` or `state.json`. **Never commit a Telegram token or a PyPI token.**
+| Bump | When | Example |
+|---|---|---|
+| **MAJOR** `2.0.0` | Something existing users rely on breaks: a CLI flag is removed or renamed, a config field changes meaning, or the state file needs a migration | dropping `--rebaseline` |
+| **MINOR** `1.2.0` | New backwards-compatible features | a new command, check, source type or bot button |
+| **PATCH** `1.1.1` | Backwards-compatible bug fixes only | a parser fix, a wrong exit code |
+
+Every change goes under `## [Unreleased]` in [CHANGELOG.md](https://github.com/Yosinan/ping-shield/blob/main/CHANGELOG.md) when it's made. Each release
+gets a git tag `vX.Y.Z` on the commit that sets the version. Never reuse or move a published tag or
+version: PyPI rejects re-uploads, and users may already have pinned it.
 
 ### 3. Cut a release
 
-The version has a single source: `__version__` in `ping_shield/__init__.py`.
-
 ```bash
-# bump the version in ping_shield/__init__.py, e.g. 1.0.0 -> 1.0.1
-git commit -am "Release 1.0.1"
-git tag -a v1.0.1 -m "ping-shield 1.0.1"
-git push origin main --tags
+# 1. In CHANGELOG.md, rename [Unreleased] to [1.2.0] - YYYY-MM-DD, add a fresh empty
+#    [Unreleased] section, and update the compare links at the bottom.
+# 2. Set __version__ = "1.2.0" in ping_shield/__init__.py
+git commit -am "Release 1.2.0"
+git tag -a v1.2.0 -m "ping-shield 1.2.0"
+git push origin main v1.2.0
 ```
 
 ### 4. Build the source distribution and wheel
@@ -348,8 +355,8 @@ python3 -m build
 This creates:
 
 ```text
-dist/ping_shield-1.0.1.tar.gz             # source distribution (sdist)
-dist/ping_shield-1.0.1-py3-none-any.whl   # universal pure-Python wheel
+dist/ping_shield-1.2.0.tar.gz             # source distribution (sdist)
+dist/ping_shield-1.2.0-py3-none-any.whl   # universal pure-Python wheel
 ```
 
 The wheel is tagged `py3-none-any`: it has no compiled code, so the same file installs on every
