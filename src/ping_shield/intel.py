@@ -33,7 +33,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from . import __version__
 from .config import Config, StateStore
-from .notify import Alert, NotifyError, TelegramNotifier
+from .notify import Alert, Button, Field, NotifyError, TelegramNotifier, local_time
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,12 @@ MAX_FEED_BYTES = 10 * 1024 * 1024
 SUMMARY_CHARS = 600
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 CVSS_CRITICAL_RE = re.compile(r"\bCVSS(?:v?[234](?:\.\d)?)?\b[^0-9]{0,25}(9\.\d|10(?:\.0)?)\b", re.IGNORECASE)
+
+# Signals that make an item "critical" rather than "high".
+CRITICAL_SIGNALS = frozenset({
+    "actively exploited", "exploited in the wild", "under active exploitation", "zero-day", "zero day",
+    "0-day", "backdoor", "backdoored", "wormable", "rootkit", "known exploited vulnerabilities",
+})
 
 # Executable on PATH -> keywords it implies.
 _TOOL_KEYWORDS: Dict[str, Sequence[str]] = {
@@ -321,13 +327,13 @@ class IntelEngine:
         config: Config,
         state: StateStore,
         notifier: Optional[TelegramNotifier],
-        alert_prefix: str = "🛡️ ping-shield",
+        banner: str = "",
         matcher: Optional[KeywordMatcher] = None,
     ):
         self.config = config
         self.state = state
         self.notifier = notifier
-        self.alert_prefix = alert_prefix
+        self.banner = banner
         self.matcher = matcher or KeywordMatcher.from_config(config)
         self.hostname = socket.gethostname()
         section = state.section("intel")
@@ -357,22 +363,32 @@ class IntelEngine:
         return self.process_items(items, report)
 
     def _alert(self, item: NewsItem, match: Match) -> Alert:
-        published = item.published.strftime("%Y-%m-%d %H:%M UTC") if item.published else "unknown"
+        critical = any(s.lower() in CRITICAL_SIGNALS or s.startswith("CVSS") for s in match.severity)
+        cves = sorted(item.cves)
         fields = [
-            ("Source", item.source or "unknown"),
-            ("Published", published),
-            ("Severity", ", ".join(match.severity)),
-            ("Affects you", ", ".join(match.environment)),
+            Field("🎯", "Affects you", " · ".join(match.environment)),
+            Field("🏷", "Signals", " · ".join(match.severity)),
         ]
-        if item.cves:
-            fields.append(("CVE", ", ".join(sorted(item.cves))))
-        fields.append(("Host", self.hostname))
+        if cves:
+            fields.append(Field("🔖", "CVE", ", ".join(cves), mono=True))
+        fields.append(Field("🗞", "Source", item.source or "unknown"))
+        if item.published:
+            fields.append(Field("📅", "Published", local_time(item.published)))
+        buttons = []
+        if item.link.startswith(("https://", "http://")):
+            buttons.append([Button("📖 Read full article", item.link)])
+        if cves:
+            buttons.append([Button(f"🔎 {cve} on NVD", f"https://nvd.nist.gov/vuln/detail/{cve}")
+                            for cve in cves[:2]])
         return Alert(
-            title=f"Threat intel: {item.title}",
+            icon="🔴" if critical else "🟠",
+            title="Critical Threat" if critical else "High-Severity Threat",
+            banner=self.banner,
+            headline=item.title,
+            quote=item.summary,
             fields=fields,
-            body=item.summary,
-            link=item.link if item.link.startswith(("https://", "http://")) else "",
-            prefix=self.alert_prefix,
+            tags=["threat_intel", match.environment[0]],
+            buttons=buttons,
         )
 
     def _prune(self) -> None:

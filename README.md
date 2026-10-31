@@ -12,21 +12,43 @@ software actually installed on your machine. Every finding is sent to your phone
 - **Works on any systemd distribution:** Fedora, Ubuntu, Debian, Arch, openSUSE and others. Python 3.9+.
 
 ```text
-🛡️ ping-shield
-SSH trust change: ~/.ssh/authorized_keys
+🚨 SSH Trust Change
+~/.ssh/authorized_keys
 
-Host: laptop
-Target: ~/.ssh/authorized_keys
-Detected: 2026-10-31 10:43:22 UTC
-
-If you did not make this change, investigate immediately.
+🖥 Host: laptop
+🕒 Detected: 31 Oct 2026, 14:05 EAT
+📊 Changes: 🟢 1 added
 
 --- a/~/.ssh/authorized_keys
 +++ b/~/.ssh/authorized_keys
 @@ -1 +1,2 @@
  ssh-ed25519 AAAAC3Nza…Original user@laptop
 +ssh-rsa AAAAB3Nza…EVIL attacker@evil
+
+⚠️ Not you? Investigate immediately: this file controls who can log in to your account over SSH.
+
+#ssh #laptop · 🛡 ping-shield
 ```
+
+```text
+🔴 Critical Threat
+
+Official AI Extension on Cursor Marketplace Trojanized with Persistent SSH Backdoor
+▌ Researchers found a trojanized build of a popular extension…   (tap to expand)
+
+🎯 Affects you: Cursor · SSH
+🏷 Signals: backdoor · CVSS 9.6
+🔖 CVE: CVE-2026-40123
+🗞 Source: The Hacker News
+📅 Published: 31 Oct 2026, 13:42 EAT
+
+#threat_intel #cursor · 🛡 ping-shield
+[ 📖 Read full article ]
+[ 🔎 CVE-2026-40123 on NVD ]
+```
+
+Messages use Telegram HTML: diffs appear in syntax-highlighted code blocks, article summaries appear
+in collapsible quotes, and links are inline buttons. Hashtags let you filter alerts by category or host.
 
 ---
 

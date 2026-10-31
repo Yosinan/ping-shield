@@ -39,7 +39,7 @@ from .monitor import Monitor
 from .notify import NotifyError, TelegramNotifier
 
 MARKER = "# test-alert-trigger-svc-telemetry"
-TEST_PREFIX = "🧪 ping-shield SELF-TEST"
+TEST_BANNER = "🧪 SELF-TEST · simulated event, no action needed"
 LOCK_WAIT_SECONDS = 120
 
 
@@ -139,7 +139,7 @@ def test_ssh_monitoring(config: Config, notifier: TelegramNotifier) -> TestResul
 
     # disabled_checks applies to real scans only; the test always needs this target.
     test_config = dataclasses.replace(config, disabled_checks=[])
-    monitor = Monitor(test_config, StateStore.ephemeral(), notifier, alert_prefix=TEST_PREFIX)
+    monitor = Monitor(test_config, StateStore.ephemeral(), notifier, banner=TEST_BANNER)
     target = monitor.target("ssh.authorized_keys")
 
     with _signals_raise():
@@ -178,7 +178,7 @@ def test_ssh_monitoring(config: Config, notifier: TelegramNotifier) -> TestResul
             _check(result, f"+{MARKER}" in event.diff, "diff contains the injected line",
                    "injected line missing from diff")
             _check(result, event.delivered,
-                   f"Telegram alert delivered with markdown diff (message id {event.message_id})",
+                   f"Telegram alert delivered with code diff (message id {event.message_id})",
                    f"Telegram delivery failed: {event.error}")
 
             repeat = monitor.scan([target])
@@ -252,7 +252,7 @@ def _pick_local_keyword(engine: IntelEngine) -> str:
 
 def test_intel_pipeline(config: Config, notifier: TelegramNotifier) -> TestResult:
     result = TestResult("Threat-intel news alerting")
-    engine = IntelEngine(config, StateStore.ephemeral(), notifier, alert_prefix=TEST_PREFIX)
+    engine = IntelEngine(config, StateStore.ephemeral(), notifier, banner=TEST_BANNER)
     keyword = _pick_local_keyword(engine)
     if keyword not in engine.matcher.environment:
         engine.matcher = type(engine.matcher)(engine.matcher.severity, engine.matcher.environment + [keyword])

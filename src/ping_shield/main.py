@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import socket
 import sys
 from typing import Optional, Sequence
 
@@ -18,7 +19,7 @@ from .config import (
     run_lock,
     state_path,
 )
-from .notify import Alert, NotifyError, TelegramNotifier
+from .notify import Alert, Field, NotifyError, TelegramNotifier
 from .service import ServiceError
 
 log = logging.getLogger("ping_shield")
@@ -95,9 +96,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     if answer in ("", "y", "yes"):
         try:
             notifier.send_alert(Alert(
-                title="Connected",
-                body="ping-shield can deliver alerts to this chat.",
-                fields=[("Version", __version__)],
+                icon="✅",
+                title="ping-shield Connected",
+                fields=[
+                    Field("🖥", "Host", socket.gethostname(), mono=True),
+                    Field("📦", "Version", __version__),
+                ],
+                note="Security alerts for this machine will be delivered to this chat.",
             ))
             print("✓ Message sent. Check Telegram.")
         except NotifyError as exc:
@@ -122,9 +127,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         if state.reset_reason:
             try:
                 notifier.send_alert(Alert(
-                    title="State reset",
-                    body=f"{state.reset_reason}. Baselines will be re-established on this run; "
-                         "changes made since the last good state cannot be diffed.",
+                    icon="♻️",
+                    title="State Reset",
+                    fields=[Field("🖥", "Host", socket.gethostname(), mono=True)],
+                    bullets=[state.reset_reason],
+                    note_title="ℹ️ Note:",
+                    note="baselines are re-established on this run; changes made since the last "
+                         "good state cannot be diffed.",
                 ))
             except NotifyError as exc:
                 log.error("could not report state reset: %s", exc)

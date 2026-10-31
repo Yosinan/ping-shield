@@ -1,22 +1,26 @@
 """Telegram delivery for ping-shield alerts.
 
 Standard library only: a security monitor should not drag a third-party HTTP
-stack into its own supply chain. Messages are formatted as Telegram
-MarkdownV2 (with an automatic plain-text fallback), rate limits are honoured,
-and the bot token never appears in logs or exception messages.
+stack into its own supply chain. Messages are rendered as Telegram HTML with
+inline URL buttons (with automatic plain-text and button-less fallbacks),
+rate limits are honoured, and the bot token never appears in logs or
+exception messages.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import html
 import ipaddress
 import json
 import logging
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
@@ -27,22 +31,23 @@ API_BASE_ENV = "PING_SHIELD_TELEGRAM_API_BASE"
 DEFAULT_API_BASE = "https://api.telegram.org"
 USER_AGENT = f"ping-shield/{__version__} (+https://pypi.org/project/ping-shield/)"
 MAX_MESSAGE_LEN = 4096
+BRAND = "🛡 ping-shield"
 _MAX_ATTEMPTS = 4
-_MD_SPECIAL = frozenset("_*[]()~`>#+-=|{}.!\\")
 
 
-def escape_md(text: str) -> str:
-    """Escape *text* for use outside code entities in MarkdownV2."""
-    return "".join("\\" + ch if ch in _MD_SPECIAL else ch for ch in text)
+def esc(text: str) -> str:
+    """Escape *text* for Telegram HTML."""
+    return html.escape(text, quote=False)
 
 
-def escape_code(text: str) -> str:
-    """Escape *text* for use inside a MarkdownV2 ``pre``/``code`` entity."""
-    return text.replace("\\", "\\\\").replace("`", "\\`")
+def local_time(moment: Optional[datetime] = None) -> str:
+    """Format *moment* (default: now) in the machine's local timezone, e.g. '31 Oct 2026, 14:05 EAT'."""
+    moment = (moment or datetime.now(timezone.utc)).astimezone()
+    return moment.strftime("%d %b %Y, %H:%M %Z").lstrip("0")
 
 
-def escape_url(url: str) -> str:
-    return url.replace("\\", "\\\\").replace(")", "\\)")
+def hashtag(text: str) -> str:
+    return re.sub(r"[^0-9A-Za-z_]+", "_", text).strip("_").lower()
 
 
 class NotifyError(RuntimeError):
@@ -63,47 +68,135 @@ def _fit_lines(lines: List[str], budget: int) -> List[str]:
     return kept
 
 
+def _cap(text: str, length: int) -> str:
+    return text if len(text) <= length else text[: length - 1].rstrip() + "…"
+
+
+@dataclasses.dataclass
+class Field:
+    icon: str
+    label: str
+    value: str
+    mono: bool = False
+
+
+@dataclasses.dataclass
+class Button:
+    text: str
+    url: str
+
+
 @dataclasses.dataclass
 class Alert:
-    """A structured alert that renders to MarkdownV2 or plain text within Telegram's limit."""
+    """A structured alert, rendered to Telegram HTML or plain text within the size limit.
+
+    Layout (every part optional except the title)::
+
+        <banner>
+        <icon> <title>
+        <target>                 monospace
+        <headline>               bold
+        <quote>                  expandable blockquote
+        <icon> <label>: <value>  one line per field
+        • <bullet>
+        <code block>
+        <note_title> <note>
+        #tags · 🛡 ping-shield
+        [ button ] [ button ]    inline keyboard
+    """
 
     title: str
-    fields: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
-    body: str = ""
+    icon: str = "🛡"
+    banner: str = ""
+    target: str = ""
+    headline: str = ""
+    quote: str = ""
+    fields: List[Field] = dataclasses.field(default_factory=list)
+    bullets: List[str] = dataclasses.field(default_factory=list)
     code: str = ""
     code_lang: str = ""
-    link: str = ""
-    prefix: str = "🛡️ ping-shield"
+    note_title: str = ""
+    note: str = ""
+    tags: List[str] = dataclasses.field(default_factory=list)
+    buttons: List[List[Button]] = dataclasses.field(default_factory=list)
 
-    def _render(self, markdown: bool, limit: int) -> str:
-        esc = escape_md if markdown else (lambda s: s)
-        parts = [f"*{esc(self.prefix)}*" if markdown else self.prefix]
-        parts.append(f"*{esc(self.title)}*" if markdown else self.title)
-        parts.append("")
-        for key, value in self.fields:
-            parts.append(f"*{esc(key)}:* {esc(value)}" if markdown else f"{key}: {value}")
-        if self.body:
-            parts += ["", esc(self.body)]
-        if self.link:
-            parts += ["", f"[Read the full report]({escape_url(self.link)})" if markdown else self.link]
-        text = "\n".join(parts)
+    def __post_init__(self) -> None:
+        self.title = _cap(self.title, 200)
+        self.target = _cap(self.target, 300)
+        self.headline = _cap(self.headline, 400)
+        self.quote = _cap(self.quote, 1200)
+        self.note = _cap(self.note, 400)
+        self.fields = [dataclasses.replace(f, value=_cap(f.value, 300)) for f in self.fields[:8]]
+        self.bullets = [_cap(b, 300) for b in self.bullets[:8]]
+
+    def _footer(self) -> str:
+        tags = " ".join(f"#{t}" for t in (hashtag(t) for t in self.tags) if t)
+        return f"{tags} · {BRAND}" if tags else BRAND
+
+    def _render(self, rich: bool, limit: int, inline_links: bool) -> str:
+        e = esc if rich else (lambda s: s)
+        bold = (lambda s: f"<b>{esc(s)}</b>") if rich else (lambda s: s)
+        mono = (lambda s: f"<code>{esc(s)}</code>") if rich else (lambda s: s)
+
+        head: List[str] = []
+        if self.banner:
+            head += [f"<i>{esc(self.banner)}</i>" if rich else self.banner, ""]
+        head.append(f"{self.icon} {bold(self.title)}")
+        if self.target:
+            head.append(mono(self.target))
+        if self.headline:
+            head += ["", bold(self.headline)]
+        if self.quote:
+            head += ["", f"<blockquote expandable>{esc(self.quote)}</blockquote>" if rich else self.quote]
+        if self.fields:
+            head.append("")
+            for f in self.fields:
+                value = mono(f.value) if f.mono else e(f.value)
+                head.append(f"{f.icon} {bold(f.label + ':')} {value}")
+        if self.bullets:
+            head.append("")
+            head += [f"• {e(b)}" for b in self.bullets]
+
+        tail: List[str] = []
+        if self.note or self.note_title:
+            tail += ["", " ".join(p for p in (bold(self.note_title) if self.note_title else "", e(self.note)) if p)]
+        if inline_links:
+            links = [b for row in self.buttons for b in row]
+            if links:
+                tail.append("")
+                tail += [f'{e(b.text)}: <a href="{html.escape(b.url)}">{esc(b.url)}</a>' if rich
+                         else f"{b.text}: {b.url}" for b in links]
+        tail += ["", self._footer()]
+
+        text_head, text_tail = "\n".join(head), "\n".join(tail)
+        code = ""
         if self.code:
-            opener = f"\n\n```{self.code_lang}\n" if markdown else "\n\n"
-            closer = "\n```" if markdown else ""
-            budget = limit - len(text) - len(opener) - len(closer) - 8
+            opener = f'\n\n<pre><code class="language-{esc(self.code_lang)}">' if rich and self.code_lang else (
+                "\n\n<pre>" if rich else "\n\n")
+            closer = "</code></pre>" if rich and self.code_lang else ("</pre>" if rich else "")
+            budget = limit - len(text_head) - len(text_tail) - len(opener) - len(closer) - 8
             if budget > 80:
                 raw = self.code.splitlines()
-                lines = _fit_lines([escape_code(l) for l in raw] if markdown else raw, budget)
-                text += opener + "\n".join(lines) + closer
-        if len(text) > limit:
-            text = text[: limit - 1].rstrip("\\") + "…"
+                lines = _fit_lines([esc(l) for l in raw] if rich else raw, budget)
+                code = opener + "\n".join(lines) + closer
+        text = text_head + code + "\n" + text_tail
+        if not rich and len(text) > limit:
+            text = text[: limit - 1] + "…"
+        # Rich text needs no final cut: every part is capped in __post_init__ and
+        # Telegram counts the limit after entity parsing, so raw HTML overestimates.
         return text
 
-    def to_markdown(self, limit: int = MAX_MESSAGE_LEN) -> str:
-        return self._render(True, limit)
+    def to_html(self, limit: int = MAX_MESSAGE_LEN, inline_links: bool = False) -> str:
+        return self._render(True, limit, inline_links)
 
     def to_plain(self, limit: int = MAX_MESSAGE_LEN) -> str:
-        return self._render(False, limit)
+        return self._render(False, limit, inline_links=True)
+
+    def reply_markup(self) -> Optional[Dict[str, Any]]:
+        rows = [[{"text": b.text, "url": b.url} for b in row if b.url.startswith(("https://", "http://"))]
+                for row in self.buttons]
+        rows = [r for r in rows if r]
+        return {"inline_keyboard": rows} if rows else None
 
 
 def _validate_api_base(base: str) -> str:
@@ -191,7 +284,12 @@ class TelegramNotifier:
         result = self._call("getMe", {})
         return result if isinstance(result, dict) else {}
 
-    def send_message(self, text: str, parse_mode: Optional[str] = "MarkdownV2") -> int:
+    def send_message(
+        self,
+        text: str,
+        parse_mode: Optional[str] = "HTML",
+        reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> int:
         payload: Dict[str, Any] = {
             "chat_id": self.chat_id,
             "text": text,
@@ -199,18 +297,25 @@ class TelegramNotifier:
         }
         if parse_mode:
             payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         result = self._call("sendMessage", payload)
         return int(result.get("message_id", 0)) if isinstance(result, dict) else 0
 
     def send_alert(self, alert: Alert) -> int:
-        """Send *alert*; fall back to plain text if Telegram rejects the markup."""
+        """Send *alert*, degrading gracefully if Telegram rejects the markup or a button."""
+        markup = alert.reply_markup()
         try:
-            return self.send_message(alert.to_markdown())
+            return self.send_message(alert.to_html(), reply_markup=markup)
         except NotifyError as exc:
-            if "parse entities" not in str(exc).lower():
-                raise
-            log.warning("Telegram rejected MarkdownV2 (%s); resending as plain text", exc)
-            return self.send_message(alert.to_plain(), parse_mode=None)
+            reason = str(exc).lower()
+            if markup and "button" in reason:
+                log.warning("Telegram rejected an inline button (%s); sending links inline", exc)
+                return self.send_message(alert.to_html(inline_links=True))
+            if "parse entities" in reason:
+                log.warning("Telegram rejected the HTML (%s); resending as plain text", exc)
+                return self.send_message(alert.to_plain(), parse_mode=None)
+            raise
 
     def discover_chats(self) -> List[Tuple[str, str]]:
         """Return ``(chat_id, description)`` for chats that recently messaged the bot."""

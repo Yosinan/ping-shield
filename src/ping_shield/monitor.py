@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .config import Config, StateStore, config_home, disabled
-from .notify import Alert, NotifyError, TelegramNotifier
+from .notify import Alert, Field, NotifyError, TelegramNotifier, local_time
 
 log = logging.getLogger(__name__)
 
@@ -35,10 +35,11 @@ MAX_HASH_BYTES = 64 * 1024 * 1024
 MAX_TREE_ENTRIES = 2000
 MAX_DIFF_LINES = 400
 
-CATEGORY_TITLES = {
-    "ssh": "SSH trust change",
-    "persistence": "Persistence change",
-    "extensions": "IDE extension change",
+# category -> (icon, title, why it matters)
+CATEGORIES = {
+    "ssh": ("🚨", "SSH Trust Change", "this file controls who can log in to your account over SSH."),
+    "persistence": ("⚙️", "Persistence Change", "this location runs code automatically at login, boot or in every new shell."),
+    "extensions": ("🧩", "IDE Extension Change", "extensions run inside your IDE with your full user privileges."),
 }
 
 _SECRET_PATTERNS = (
@@ -70,8 +71,15 @@ def _fingerprint(data: Any) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+def diff_stats(diff: str) -> str:
+    """Summarise a rendered diff, e.g. '🟢 2 added · 🔴 1 removed'."""
+    lines = diff.splitlines()
+    added = sum(1 for l in lines if l.startswith("+") and not l.startswith("+++"))
+    removed = sum(1 for l in lines if l.startswith("-") and not l.startswith("---"))
+    modified = sum(1 for l in lines if l.startswith("!"))
+    parts = [f"{icon} {n} {word}" for icon, n, word in
+             (("🟢", added, "added"), ("🔴", removed, "removed"), ("🟡", modified, "modified")) if n]
+    return " · ".join(parts) or "metadata only"
 
 
 def _display(path: Path) -> str:
@@ -452,12 +460,12 @@ class Monitor:
         config: Config,
         state: StateStore,
         notifier: Optional[TelegramNotifier],
-        alert_prefix: str = "🛡️ ping-shield",
+        banner: str = "",
     ):
         self.config = config
         self.state = state
         self.notifier = notifier
-        self.alert_prefix = alert_prefix
+        self.banner = banner
         self.targets = default_targets(config)
         self.hostname = socket.gethostname()
 
@@ -476,18 +484,33 @@ class Monitor:
         }
 
     def _build_alert(self, target: Target, diff: str, warnings: Sequence[str], baseline: bool) -> Alert:
-        title = CATEGORY_TITLES.get(target.category, "Change detected")
-        title = f"{title}: insecure baseline" if baseline else f"{title}: {target.label}"
-        body = "\n".join(f"⚠️ {w}" for w in warnings)
-        if not baseline:
-            body = (body + "\n\n" if body else "") + "If you did not make this change, investigate immediately."
+        icon, title, why = CATEGORIES.get(target.category, ("🔔", "Change Detected", ""))
+        fields = [Field("🖥", "Host", self.hostname, mono=True), Field("🕒", "Detected", local_time())]
+        if baseline:
+            return Alert(
+                icon="🔓",
+                title="Insecure Configuration",
+                target=target.label,
+                banner=self.banner,
+                fields=fields,
+                bullets=list(warnings),
+                note_title="🛠 Fix:",
+                note="tighten the permissions (e.g. chmod 600) so no other user can modify it.",
+                tags=[target.category, self.hostname],
+            )
+        fields.append(Field("📊", "Changes", diff_stats(diff)))
         return Alert(
+            icon=icon,
             title=title,
-            fields=[("Host", self.hostname), ("Target", target.label), ("Detected", _now())],
-            body=body,
+            target=target.label,
+            banner=self.banner,
+            fields=fields,
+            bullets=[f"⚠️ {w}" for w in warnings],
             code=diff,
             code_lang="diff",
-            prefix=self.alert_prefix,
+            note_title="⚠️ Not you?",
+            note=f"Investigate immediately: {why}" if why else "Investigate immediately.",
+            tags=[target.category, self.hostname],
         )
 
     def _deliver(self, event: Event) -> None:
